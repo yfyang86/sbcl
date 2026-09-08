@@ -17,6 +17,13 @@
 ;;; time).
 (defconstant-eqx +fixup-kinds+ #(:absolute :leb128) #'equalp)
 
+;;; An i32.const immediate is a full signed 32-bit word, so every fixnum
+;;; and every (signed-byte 32) is a "short" immediate on this target. The
+;;; names are kept for the sake of the arithmetic VOPs shared in shape
+;;; with the RISC-V backend.
+(def!type short-immediate () '(or (signed-byte 32) (unsigned-byte 32)))
+(def!type short-immediate-fixnum () `(signed-byte ,(- 32 n-fixnum-tag-bits)))
+
 ;;;; The register file
 ;;;;
 ;;;; Wasm has no registers that the garbage collector could see. The

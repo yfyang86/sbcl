@@ -11,7 +11,11 @@ OUT=${LEVEL0_OUT:-$ROOT/obj/wasm-level0}
 SBCL=${SBCL:-sbcl}
 rm -rf "$OUT"; mkdir -p "$OUT"
 fail=0
-$SBCL --core "$XC" --noinform --disable-debugger --no-userinit --no-sysinit \
+# LEVEL0_PRELOAD="file.lisp ..." loads backend sources into the image first,
+# to iterate on them without rebuilding xc.core.
+preload=""
+for f in ${LEVEL0_PRELOAD:-}; do preload="$preload --load $f"; done
+$SBCL --core "$XC" --noinform --disable-debugger --no-userinit --no-sysinit $preload \
       --load "$ROOT/tests/wasm/level0/assembler.lisp" \
       --eval "(sb-wasm-asm::run-level0 \"$OUT\")" > "$OUT/lisp.log" 2>&1
 code=$?

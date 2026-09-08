@@ -88,6 +88,9 @@
   (:note "float move")
   
   (:generator 0 (vop-not-yet-implemented 'single-move x y)))
+;;; registrations that riscv generates with macros
+(define-move-vop single-move :move (single-reg) (single-reg))
+
 
 (define-vop (double-move)
   (:args (x :scs (double-reg) :load-if (not (location= x y))))
@@ -95,6 +98,8 @@
   (:note "float move")
   
   (:generator 0 (vop-not-yet-implemented 'double-move x y)))
+(define-move-vop double-move :move (double-reg) (double-reg))
+
 
 (define-vop (move-from-float)
   (:args (x))
@@ -111,6 +116,11 @@
   (:variant :single single-float-size single-float-widetag single-float-value-slot)
   (:note "float to pointer coercion")
   (:generator 13 (vop-not-yet-implemented 'move-from-single x y fmt size type data)))
+;;;; Move VOP registrations (coercions between storage classes), as on riscv.
+
+(define-move-vop move-from-single :move
+  (single-reg) (descriptor-reg))
+
 
 (define-vop (move-from-double)
   (:args (x :scs (double-reg)))
@@ -119,18 +129,25 @@
   (:variant :double double-float-size double-float-widetag double-float-value-slot)
   (:note "float to pointer coercion")
   (:generator 13 (vop-not-yet-implemented 'move-from-double x y fmt size type data)))
+(define-move-vop move-from-double :move
+  (double-reg) (descriptor-reg))
+
 
 (define-vop (move-to-single)
   (:args (x :scs (descriptor-reg)))
   (:results (y :scs (single-reg)))
   (:note "pointer to float coercion")
   (:generator 2 (vop-not-yet-implemented 'move-to-single x y)))
+(define-move-vop move-to-single :move (descriptor-reg) (single-reg))
+
 
 (define-vop (move-to-double)
   (:args (x :scs (descriptor-reg)))
   (:results (y :scs (double-reg)))
   (:note "pointer to float coercion")
   (:generator 2 (vop-not-yet-implemented 'move-to-double x y)))
+(define-move-vop move-to-double :move (descriptor-reg) (double-reg))
+
 
 (define-vop (move-single-float-arg)
   (:args (x :scs (single-reg))
@@ -152,6 +169,9 @@
   (:note "complex single float move")
   
   (:generator 0 (vop-not-yet-implemented 'complex-single-move x y)))
+(define-move-vop complex-single-move :move
+  (complex-single-reg) (complex-single-reg))
+
 
 (define-vop (complex-double-move)
   (:args (x :scs (complex-double-reg) :load-if (not (location= x y))))
@@ -159,6 +179,9 @@
   (:note "complex double float move")
   
   (:generator 0 (vop-not-yet-implemented 'complex-double-move x y)))
+(define-move-vop complex-double-move :move
+  (complex-double-reg) (complex-double-reg))
+
 
 (define-vop (move-from-complex-float)
   (:args (x))
@@ -175,6 +198,9 @@
    complex-single-float-widetag complex-single-float-size)
   (:note "complex single float to pointer coercion")
   (:generator 13 (vop-not-yet-implemented 'move-from-complex-single x y format real-slot imag-slot widetag size)))
+(define-move-vop move-from-complex-single :move
+  (complex-single-reg) (descriptor-reg))
+
 
 (define-vop (move-from-complex-double)
   (:args (x :scs (complex-double-reg)))
@@ -184,6 +210,9 @@
    complex-double-float-widetag complex-double-float-size)
   (:note "complex double float to pointer coercion")
   (:generator 13 (vop-not-yet-implemented 'move-from-complex-double x y format real-slot imag-slot widetag size)))
+(define-move-vop move-from-complex-double :move
+  (complex-double-reg) (descriptor-reg))
+
 
 (define-vop (move-to-complex-float)
   (:args (x :scs (descriptor-reg)))
@@ -200,6 +229,9 @@
   (:variant :single complex-single-float-real-slot complex-single-float-imag-slot)
   (:note "pointer to complex float coercion")
   (:generator 2 (vop-not-yet-implemented 'move-to-complex-single x y format real-slot imag-slot)))
+(define-move-vop move-to-complex-single :move
+  (descriptor-reg) (complex-single-reg))
+
 
 (define-vop (move-to-complex-double)
   (:args (x :scs (descriptor-reg)))
@@ -208,6 +240,9 @@
   (:variant :double complex-double-float-real-slot complex-double-float-imag-slot)
   (:note "pointer to complex float coercion")
   (:generator 2 (vop-not-yet-implemented 'move-to-complex-double x y format real-slot imag-slot)))
+(define-move-vop move-to-complex-double :move
+  (descriptor-reg) (complex-double-reg))
+
 
 (define-vop (move-complex-single-float-arg)
   (:args (x :scs (complex-single-reg))
@@ -891,3 +926,18 @@
   (:note "complex double float imagpart")
   (:vop-var vop)
   (:generator 3 (vop-not-yet-implemented 'imagpart/complex-double-float x r slot)))
+
+(define-move-vop move-complex-single-float-arg :move-arg
+  (complex-single-reg descriptor-reg) (complex-single-reg))
+
+(define-move-vop move-complex-double-float-arg :move-arg
+  (complex-double-reg descriptor-reg) (complex-double-reg))
+(define-move-vop move-single-float-arg :move-arg
+  (single-reg descriptor-reg) (single-reg))
+(define-move-vop move-double-float-arg :move-arg
+  (double-reg descriptor-reg) (double-reg))
+;;; Use standard MOVE-ARG + coercion to move an untagged float to a
+;;; descriptor passing location.
+(define-move-vop move-arg :move-arg
+  (single-reg double-reg complex-single-reg complex-double-reg)
+  (descriptor-reg))
