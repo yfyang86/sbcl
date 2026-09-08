@@ -73,3 +73,5 @@ lowering and runtime code loading) are retired in the first quarter.
 ## Progress
 
 Sprint records live under `Sprints/` at the repository root. `Sprints/Sprint1/` is Phase 0 (the spikes); its `verify.md` records the measured answers to the questions in `06-risks-and-spikes.md`.
+
+Building and running the port (tool chain for Linux and macOS, `build-wasm.sh` and its platform wrappers, tests, debugging aids) is described in `WASM-Manual.md` at the repository root.

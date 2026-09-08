@@ -1,0 +1,268 @@
+# SBCL on WebAssembly — build and user manual
+
+This manual covers the WebAssembly port of SBCL that lives on the
+`wasm-dev` branch: what it is, what it can do today, how to set up the
+tool chain on Linux and macOS, how to build and run it, and how to debug
+it. The design and the sprint plan are in `doc/wasm-port/`; each sprint's
+records (development notes, UAT script and result, findings) are in
+`Sprints/SprintN/`.
+
+## 1. What it is
+
+The port compiles Lisp to WebAssembly with a new compiler backend
+(`src/compiler/wasm/`), builds the cold core with the usual cross-build
+(`crossbuild-runner`, target `wasm`), and runs the C runtime
+(`src/runtime`) compiled for `wasm32-wasip1` under a Wasmtime host written
+in Rust (`wasm/crates/sbcl-wasm-host`). The pieces:
+
+| Piece | Where | Product |
+|---|---|---|
+| compiler backend (VOPs, Wasm instruction encoder, function assembler, module writer) | `src/compiler/wasm/`, `src/assembly/wasm/` | fasls carrying Wasm functions |
+| genesis for wasm (core module, table indices, foreign symbol list, map) | `src/compiler/generic/genesis.lisp` (`#+wasm` parts) | `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, genesis headers |
+| runtime (C, wasi-sdk) | `src/runtime/wasm-*.c`, `wasi-mman.c`, `Config.wasm-wasi` | `src/runtime/sbcl.wasm` |
+| host (Rust, Wasmtime) | `wasm/crates/sbcl-wasm-host` | `wasm/target/release/sbcl-wasm` |
+| tests | `tests/wasm/` (level 0: assembler/module writer; level 1: differential suite against the host compiler) and each sprint's `uat.sh` | |
+
+Status after Sprint 6 (`Sprints/Sprint6/`): `sbcl.wasm --version` and
+`--help` work; the cold core loads, its core module instantiates and
+`!COLD-INIT` runs through stream and signal-function initialization
+before stopping in the printer initialization. There is no REPL yet.
+The next sprints (plan `doc/wasm-port/04-sprints.md`) bring up the Lisp
+side of errors, the debugger and streams.
+
+## 2. Requirements
+
+Pinned tool versions (`tools-for-build/wasm-env.sh`):
+
+| Tool | Version | Used for |
+|---|---|---|
+| wasi-sdk | 27 | compiling the runtime and test C programs to `wasm32-wasip1` |
+| wasmtime | 45.0.0 | running level-0/level-1 tests from the command line (the host embeds the same crate) |
+| wasm-tools | 1.240.0 | validating and printing modules |
+| host SBCL | 2.4.8 (any recent SBCL works) | running the cross-compiler and genesis |
+| Rust (cargo) | stable | building the host |
+| Node.js (optional) | 22 | the V8 loader check in the Sprint 5 UAT |
+
+Disk: about 2 GB for the build products (the core module is 40 MB, the
+Wasmtime cache entry for it 82 MB). Memory: pass-2 of the cross build
+uses about 2 GB.
+
+### 2.1 Linux (x86-64)
+
+The layout Sprint 1 set up, also the default of the wrapper script:
+
+```
+wasi-sdk     /home/user/tools/wasi-sdk    (or $HOME/tools/wasi-sdk, /opt/wasi-sdk)
+wasmtime     in PATH                      (or $HOME/.wasmtime/bin)
+wasm-tools   in PATH                      (or $HOME/.cargo/bin)
+sbcl         in PATH
+cargo        in PATH (rustup)
+```
+
+`./build-wasm-linux-x86_64.sh toolchain` checks these and downloads what
+is missing: wasi-sdk into `$HOME/tools`, wasmtime into
+`$HOME/.wasmtime/bin`, wasm-tools into `$HOME/.cargo/bin`, and a host
+SBCL under `$HOME/.local` (then add `$HOME/.local/bin` to `PATH` and set
+`SBCL_HOME=$HOME/.local/lib/sbcl`). Rust is not installed automatically:
+use `https://rustup.rs`.
+
+### 2.2 macOS (Apple silicon, arm64)
+
+The layout the port is developed against on macOS:
+
+```
+WASMTIME_BIN_PATH="$HOME/.wasmtime/bin"
+WASISDK_PATH="$HOME/bin/wasi-sdk"
+WASMTOOLS_BIN_PATH="$HOME/.cargo/bin"
+```
+
+that is
+
+```
+$ ls $HOME/.wasmtime
+LICENSE   README.md bin
+$ ls $HOME/bin/wasi-sdk
+VERSION bin     include lib     share
+$ which wasm-tools
+/Users/user/.cargo/bin/wasm-tools
+```
+
+`./build-wasm-darwin-arm64.sh toolchain` uses whatever is already in
+those places and downloads the pinned arm64 macOS releases
+(`wasi-sdk-27.0-arm64-macos`, `wasmtime-v45.0.0-aarch64-macos`,
+`wasm-tools-1.240.0-aarch64-macos`) into them otherwise. The host SBCL is
+not downloaded on macOS: `brew install sbcl`. Rust: `https://rustup.rs`.
+The macOS wrapper only sets the environment; the build steps are the same
+as on Linux. (Note: the Sprint 1–6 records were produced on Linux; the
+macOS path has not been exercised by the automated UAT.)
+
+### 2.3 Other systems
+
+Set `WASISDK_PATH`, `WASMTIME_BIN_PATH` and `WASMTOOLS_BIN_PATH` in the
+environment and run `./build-wasm.sh`; the toolchain step then only
+checks (no release asset names are known for other platforms).
+
+## 3. Building
+
+Everything goes through `build-wasm.sh`; the platform wrappers set the
+tool paths and call it:
+
+```
+./build-wasm-linux-x86_64.sh          # Linux: toolchain host lisp runtime smoke
+./build-wasm-darwin-arm64.sh          # macOS: the same
+./build-wasm.sh env                   # show the tool-chain settings
+./build-wasm.sh --help
+```
+
+Steps, in the order `all` runs them:
+
+| Step | What it does | Time | Products |
+|---|---|---|---|
+| `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo; downloads missing pinned releases (`--no-download` to only check) | seconds | |
+| `host` | `cargo build --release -p sbcl-wasm-host` | 1–3 min first time | `wasm/target/release/sbcl-wasm` |
+| `lisp` | crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
+| `runtime` | `tools-for-build/wasm-build-runtime.sh`: genesis headers into `src/runtime/genesis/`, target symlinks, generated linkage table, `make sbcl.wasm` with wasi-sdk | 1 min | `src/runtime/sbcl.wasm` |
+| `smoke` | `sbcl.wasm --version` and `--help` under the host | seconds | |
+| `test` | level-0 suite; rebuilds the after-xc core and runs the level-1 differential suite | 12 min | logs in `obj/wasm-build/` |
+| `run` | runs `sbcl.wasm --core obj/xbuild/wasm.core`, arguments after `--` go to the runtime | | |
+| `clean` | removes the Lisp products and runtime objects | | |
+
+`--fast` skips pass-1, pass-2 and the after-xc build when their products
+exist (use it after a change to the runtime or the host). `--jobs N` sets
+the runtime build's parallelism. Logs of every step are in
+`obj/wasm-build/*.log`.
+
+Typical loops:
+
+```
+# C runtime or host change
+./build-wasm.sh --fast runtime smoke
+
+# compiler backend change (anything under src/compiler/wasm or genesis)
+./build-wasm.sh lisp runtime smoke
+
+# run the cold core with the call trace and a 60 s deadline
+SBCL_WASM_TRACE_CALLS=1 SBCL_WASM_TIMEOUT=60 ./build-wasm.sh run -- --noinform
+```
+
+The sprint scripts are still there for the record: `Sprints/Sprint5/pass1.sh`,
+`pass2.sh`, `after-xc.sh`, `Sprints/Sprint6/genesis-map.sh` (genesis alone,
+three minutes, when only genesis changed) and each sprint's `uat.sh`.
+
+## 4. Running
+
+`tools-for-build/wasm_run.sh MODULE.wasm [args]` runs any WASI module under
+the host (building the host on first use). The runtime:
+
+```
+tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --version
+tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --help
+tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform
+```
+
+Paths are relative to the current directory, which the host preopens for
+WASI. The core module (`<core minus .core>-core.wasm`) must sit next to
+the core file; the runtime asks the host to instantiate it.
+
+Environment variables read by the host and the runtime:
+
+| Variable | Effect |
+|---|---|
+| `SBCL_WASM_VERBOSE=1` | print the core module's compile and instantiate times |
+| `SBCL_WASM_TIMEOUT=<s>` | terminate the run after that many seconds with a Wasm backtrace and the Lisp register file |
+| `SBCL_WASM_TRACE_CALLS=1` | print every `call_into_lisp` (function, table index, argument count) |
+| `SBCL_WASM_HOST=<path>` | the host binary `wasm_run.sh` uses |
+| `WASMTIME_BACKTRACE_DETAILS=1` | Wasmtime's own richer backtraces |
+
+Ctrl-C: the first press sets the interrupt-pending word of the Lisp
+register file (not yet serviced by Lisp code); the second terminates the
+run with a backtrace. Compiled modules are cached in Wasmtime's default
+cache directory (`~/.cache/wasmtime` on Linux, `~/Library/Caches/...` on
+macOS), so the core module compiles once (24 s) and loads in under a
+second afterwards.
+
+## 5. Tests
+
+- Level 0 (`tests/wasm/run-level0.sh`): the Wasm assembler and module
+  writer in the cross-compiler image; modules validated with wasm-tools
+  and executed under the wasmtime CLI.
+- Level 1 (`XC_CORE=obj/xbuild/wasm/after-xc.core tests/wasm/run-level1.sh`):
+  162 differential cases (442 argument sets) compiled by the wasm backend
+  and run by the Rust rig (`wasm/crates/sbcl-wasm-test`) against the host
+  SBCL's results. Needs the after-xc core (`tests/wasm/make-after-xc.lisp`).
+- Sprint UATs (`Sprints/SprintN/uat.sh`): the acceptance checks of each
+  sprint; `UAT_FAST=1` skips the Lisp rebuilds. `Sprints/Sprint6/uat.sh`
+  is the current full check (24 checks, about 35 minutes).
+
+`./build-wasm.sh test` runs level 0 and level 1.
+
+## 6. Debugging
+
+- **Backtraces.** Every trap (a Lisp internal error ends in an
+  `unreachable`, out-of-bounds accesses, the deadline) prints a Wasm
+  backtrace with function names: runtime C functions by name, core module
+  functions as their entry name (an XEP) or `lambdaN` (a body), plus the
+  Lisp register file. Frames replaced by tail calls are not shown.
+- **`Sprints/Sprint6/coreindex.py`** maps a backtrace offset (`off:HEX`),
+  a module function index (`func:N`), a table index (`table:N`) or a heap
+  address (`addr:HEX`) to the Lisp function, using `obj/xbuild/wasm.map`
+  (every fdefn's function address and name, written by genesis) and the
+  core's simple-fun self slots.
+- **`Sprints/Sprint6/wasmfunc.py off:HEX`** prints the function containing
+  a code offset as text with binary offsets and marks the instruction.
+- **Internal errors** print the trap kind, error code, argument
+  descriptors, all registers and, for a named call, the callee's fdefn
+  name before trapping.
+- Register file layout: `src/runtime/wasm-lispregs.h` (NARGS, CSP, CFP,
+  OCFP, NFP, NSP, LEXENV, CODE, LIP, CFUNC, A0–A3, L0–L5, NL0–NL7, TMP,
+  RA; then floats, error arguments, unwind target, float modes, the
+  interrupt-pending word).
+
+## 7. Source map
+
+```
+build-wasm.sh, build-wasm-<system>-<arch>.sh   build driver and platform wrappers
+tools-for-build/wasm-env.sh                    tool-chain environment (sourced)
+tools-for-build/wasm-build-runtime.sh          build src/runtime/sbcl.wasm
+tools-for-build/wasm-linkage-table.sh          generate the runtime's linkage table
+tools-for-build/wasm_run.sh                    run a module under the host
+src/compiler/wasm/                             backend: parms, vm, insts (encoder), module (writer),
+                                               func-asm (function assembler), VOP files
+src/assembly/wasm/                             assembly routines (throw, unwind, trampolines)
+src/compiler/generic/genesis.lisp              #+wasm: core module, table indices, map
+src/compiler/dump.lisp, src/code/load.lisp     fop-wasm-code (Wasm blobs in fasls)
+src/runtime/Config.wasm-wasi                   runtime configuration
+src/runtime/wasm-arch.c                        register file, call_into_lisp, internal_error, module loading
+src/runtime/wasm-wasi-os.c, wasi-mman.c        OS layer, memory
+src/runtime/wasm-interrupt.c                   stubs for the signal interface
+src/runtime/wasm-lispregs.h                    register file layout
+wasm/crates/sbcl-wasm-host                     the host (sbcl-wasm)
+wasm/crates/sbcl-wasm-test                     the level-1 rig and the core loader
+tests/wasm/                                    level-0/level-1 suites, mini-runtime, spin.c
+crossbuild-runner/backends/wasm/               target features, groveled constants
+doc/wasm-port/                                 plan: overview, design, tool chain, sprints, tests
+Sprints/SprintN/                               per-sprint records and UATs
+```
+
+## 8. Troubleshooting
+
+- *`wasi-sdk not found`*: set `WASISDK_PATH` (or `WASI_SDK`) or run the
+  toolchain step.
+- *`no genesis headers`*: run the `lisp` step; the runtime needs
+  `obj/xbuild/wasm/genesis-headers/` from pass-2 (or `genesis-headers-2`
+  from `Sprints/Sprint6/genesis-map.sh`).
+- *`no obj/xbuild/wasm-core.wasm.symbols`*: same; the linkage table is
+  generated from genesis's symbol list.
+- *`unknown import: env::NAME`*: the runtime called a C-library function
+  WASI does not provide (`dlopen`, `kill`, `pipe`, ...). These are bound
+  to traps on purpose; each becomes an implementation or a Lisp-visible
+  error as the OS layer is ported.
+- *the core module compiles every time (24 s)*: Wasmtime's cache is
+  disabled or its directory is not writable; the host prints
+  `no module cache` in that case.
+- *`can't open the core module`*: the `-core.wasm` file must be next to
+  the `.core`, and the path must be relative to the current directory.
+- *pass-2 fails after a backend change*: read `obj/wasm-build/pass-2.log`
+  (the failing form is near the end); the after-xc build
+  (`tests/wasm/make-after-xc.lisp`) tolerates unimplemented VOPs and
+  writes `obj/xbuild/wasm/unimplemented-vops.txt`.
