@@ -2249,7 +2249,7 @@ core and return a descriptor to it."
     (write-wordindexed fdefn sb-vm:fdefn-fun-slot function)
     (write-wordindexed/raw
      fdefn sb-vm:fdefn-raw-addr-slot
-     (or #+(or sparc arm riscv loongarch64) ; raw addr is the function descriptor
+     (or #+(or sparc arm riscv wasm loongarch64) ; raw addr is the function descriptor
          (descriptor-bits function)
          ;; For all others raw addr is the starting address
          (+ (descriptor-base-address function)
@@ -3529,8 +3529,8 @@ static inline unsigned int schar(struct vector* string, int index) {
 }~%"))
 
 (defun write-sap-initializer ()
-  (let ((sap-align #+riscv 32 ; not sure why this is larger than normal
-                   #-riscv (* 2 sb-vm:n-word-bytes)))
+  (let ((sap-align #+(or riscv wasm) 32 ; not sure why this is larger than normal
+                   #-(or riscv wasm) (* 2 sb-vm:n-word-bytes)))
     (format t "
 #define DX_ALLOC_SAP(var_name, ptr)                                 \\
 lispobj var_name;                                                   \\

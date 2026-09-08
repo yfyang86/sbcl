@@ -253,7 +253,7 @@ during backtrace.
 (defconstant simple-fun-source-slot  2) ; form and/or docstring
 (defconstant simple-fun-info-slot    3) ; type and possibly xref
 
-#-(or x86 x86-64 arm64 riscv loongarch64)
+#-(or x86 x86-64 arm64 riscv wasm loongarch64)
 (define-primitive-object (return-pc :lowtag other-pointer-lowtag :widetag t)
   (return-point :c-type "unsigned char" :rest-p t))
 
@@ -510,7 +510,7 @@ during backtrace.
   (binding-stack-pointer :c-type "lispobj *" :pointer t
                          :special *binding-stack-pointer*)
   ;; next two not used in C, but this wires the TLS offsets to small values
-  #+(or x86-64 (and (or riscv arm64 loongarch64) sb-thread))
+  #+(or x86-64 (and (or riscv wasm arm64 loongarch64) sb-thread))
   #((current-catch-block :special *current-catch-block*)
     (current-unwind-protect-block :special *current-unwind-protect-block*))
   ;; BUG: fundamentally a pseudo-atomic code sequence does not use these bits

@@ -792,8 +792,8 @@
        ;; No handy backend (or compiler) defined constant for this one,
        ;; so construct it here and now.
        (sb-c:make-sc+offset control-stack-sc-number
-                            #-(or riscv loongarch64) lra-save-offset
-                            #+(or riscv loongarch64) sb-vm::ra-save-offset)))))
+                            #-(or riscv wasm loongarch64) lra-save-offset
+                            #+(or riscv wasm loongarch64) sb-vm::ra-save-offset)))))
 
 (defun old-fp-offset-for-location (debug-fun frame)
   (declare (ignorable debug-fun frame))
@@ -948,13 +948,13 @@
 ;;; The special var and descriptor-sap costs a few more instructions, which isn't a big deal
 ;;; because nothing that uses these is performance-critical. However, x86-64 wants these
 ;;; pointers accessed via the thread structure for +/- sb-thread to simplify the vops.
-#+(or x86-64 (and (or riscv arm64 loongarch64) sb-thread))
+#+(or x86-64 (and (or riscv wasm arm64 loongarch64) sb-thread))
 (progn
   (defmacro current-uwp-block-sap ()
     '(sb-vm::current-thread-offset-sap sb-vm::thread-current-unwind-protect-block-slot))
   (defmacro current-catch-block-sap ()
     '(sb-vm::current-thread-offset-sap sb-vm::thread-current-catch-block-slot)))
-#-(or x86-64 (and (or riscv arm64 loongarch64) sb-thread))
+#-(or x86-64 (and (or riscv wasm arm64 loongarch64) sb-thread))
 (progn
   (declaim (special sb-vm::*current-unwind-protect-block* *current-catch-block*))
   (defmacro current-uwp-block-sap () '(descriptor-sap sb-vm::*current-unwind-protect-block*))

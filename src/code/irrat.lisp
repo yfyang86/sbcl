@@ -75,7 +75,7 @@
        ,(make-fun name)
        ,(make-fun name t))))
 
-#+(or x86 x86-64 arm-vfp arm64 riscv loongarch64) ;; for constant folding
+#+(or x86 x86-64 arm-vfp arm64 riscv wasm loongarch64) ;; for constant folding
 (macrolet ((def (name ll)
              `(defun ,name ,ll (,name ,@ll))))
   (def %sqrt (x))
@@ -106,7 +106,7 @@
 (def-math-rtn "log" 1)
 (def-math-rtn "log10" 1)
 (def-math-rtn "pow" 2)
-#-(or x86 x86-64 arm-vfp arm64 riscv loongarch64)
+#-(or x86 x86-64 arm-vfp arm64 riscv wasm loongarch64)
 (def-math-rtn "sqrt" 1 nil #+ppc64 t) ;; ppc64 might have a VOP enabled via *backend-subfeatures*
 (def-math-rtn "log1p" 1)
 (def-math-rtn "log2" 1)

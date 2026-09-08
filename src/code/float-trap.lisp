@@ -159,11 +159,11 @@ sets the floating point modes to their current values (and thus is a no-op)."
 ;;; desired.
 (define-load-time-global *saved-floating-point-modes*
   '(:traps
-    #-riscv
+    #-(or riscv wasm)
     (#-(and arm64 win32) :overflow
      #-(or netbsd ppc (and arm64 win32)) :invalid
      #-(and arm64 win32) :divide-by-zero)
-    #+riscv nil
+    #+(or riscv wasm) nil
     :rounding-mode :nearest :current-exceptions nil
     :accrued-exceptions nil :fast-mode nil
     #+x86 :precision #+x86 :53-bit))

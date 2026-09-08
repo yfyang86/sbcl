@@ -501,7 +501,7 @@
        ;; uses potentially fewer cycles than scanning for just the 1 bits.
        ;; - Sparc added LZCNT no earlier than V9, but not on all V9 implementations
        ;; - Risc-v only implements something if the Zbb extension is supported
-       #+(and (not sb-xc-host) (not (or sparc riscv)))
+       #+(and (not sb-xc-host) (not (or sparc riscv wasm)))
        ;; Aligning to word boundaries is valid because MIN and MAX are merely hints about where
        ;; nonzero bits exist.
        (let ((,minword (floor (conset-min ,conset) sb-vm:n-word-bits))
@@ -530,7 +530,7 @@
                                            (* ,index sb-vm:n-word-bits))))))
                       ,@body)))
              finally (return ,result)))
-       #-(and (not sb-xc-host) (not (or sparc riscv)))
+       #-(and (not sb-xc-host) (not (or sparc riscv wasm)))
        (loop for ,index from (conset-min ,conset) below (conset-max ,conset)
              do (when (plusp (sbit ,conset-vector ,index))
                   (let ((,constraint (aref ,universe ,index)))
