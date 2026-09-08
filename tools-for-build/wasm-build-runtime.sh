@@ -9,17 +9,25 @@
 #
 #   tools-for-build/wasm-build-runtime.sh [genesis-header-dir] [make-args...]
 #
-# Environment: WASI_SDK (default /home/user/tools/wasi-sdk or /opt/wasi-sdk),
+# Environment: WASI_SDK or WASISDK_PATH (tools-for-build/wasm-env.sh sets
+# the platform default),
 # WASM_CORE_SYMBOLS (default obj/xbuild/wasm-core.wasm.symbols, the list
 # genesis writes next to the core module; it feeds the linkage table).
 set -e
 cd "$(dirname "$0")/.."
 top=$(pwd)
 
-headers=${1:-obj/xbuild/wasm/genesis-headers-2}
+headers=${1:-}
 [ $# -gt 0 ] && shift
+if [ -z "$headers" ]; then
+    # pass-2 writes genesis-headers; the Sprint 5/6 genesis-only runs -2
+    for d in obj/xbuild/wasm/genesis-headers obj/xbuild/wasm/genesis-headers-2; do
+        [ -f "$d/sbcl.h" ] && headers=$d && break
+    done
+fi
+[ -n "$WASI_SDK" ] || WASI_SDK=${WASISDK_PATH:-}
 if [ -z "$WASI_SDK" ]; then
-    for d in /home/user/tools/wasi-sdk /opt/wasi-sdk; do
+    for d in "$HOME/bin/wasi-sdk" "$HOME/tools/wasi-sdk" /home/user/tools/wasi-sdk /opt/wasi-sdk; do
         [ -x "$d/bin/clang" ] && WASI_SDK=$d && break
     done
 fi

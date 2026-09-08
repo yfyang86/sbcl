@@ -60,6 +60,8 @@
       (push (stem-object-path stem flags :target-compile) object-file-names)))
   (genesis :object-file-names (nreverse object-file-names)
            :map-file-name (format nil "obj/xbuild/~A.map" cl-user::*config-name*)
+           ;; the runtime's genesis headers, next to the core (build-wasm.sh)
+           :c-header-dir-name (format nil "obj/xbuild/~A/genesis-headers" cl-user::*config-name*)
            :defstruct-descriptions (find-bootstrap-file "output/defstructs.lisp-expr" t)
            :tls-init (read-from-file "output/tls-init.lisp-expr" :build-dependent t)
            :core-file-name (format nil "obj/xbuild/~A.core" cl-user::*config-name*)))
