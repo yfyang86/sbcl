@@ -1,0 +1,37 @@
+== tools
+PASS  wasmtime present
+PASS  wasm-tools present
+PASS  wasi-sdk clang present
+PASS  host sbcl present
+PASS  node present
+== S0.1 tool chain
+PASS  S0.1 runtime.wasm + plugin.wasm build with wasi-sdk
+PASS  S0.1 hello world runs under wasmtime
+PASS  S0.1 Rust host builds
+PASS  S0.1 runtime-instantiated module installs into shared table and is called via C
+PASS  S0.1 sbcl-wasm runner executes a WASI command module
+== S0.2 exception handling and tail calls
+PASS  S0.2 eh.wat validates with all features
+PASS  S0.2 node: unwind through 1000 frames catches at target 500
+PASS  S0.2 node: 10^7 direct and indirect tail calls do not overflow
+PASS  S0.2 wasmtime: unwind through 1000 frames catches at target 500
+PASS  S0.2 wasmtime: 10^7 indirect tail calls
+== S0.3 control-flow encodings
+PASS  S0.3 both encodings validate
+PASS  S0.3 node: dispatch-loop results equal structured results (bench.mjs asserts)
+PASS  S0.3 wasmtime: fib 32 equal in both encodings
+== S0.4 runtime compile
+PASS  S0.4 genesis headers exist for the wasm target
+PASS  S0.4 target-os.h is the WASI stub
+PASS  S0.4 at least 32 of 42 runtime files compile to wasm32-wasip1
+== S0.5 dev loop
+PASS  S0.5 :wasm is a target keyword
+PASS  S0.5 make-host-1 produced the cross-compiler fasls for the wasm backend
+PASS  S0.5 crossbuild-runner built xc.core for wasm
+PASS  S0.5 crossbuild-runner built a wasm cold core
+== S0.6 wasm64
+PASS  S0.6 memory64 module validates
+PASS  S0.6 wasmtime runs memory64 by default
+PASS  S0.6 node runs memory64 by default
+
+passed=28 failed=0

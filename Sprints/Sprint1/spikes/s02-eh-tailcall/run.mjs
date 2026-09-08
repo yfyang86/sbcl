@@ -1,0 +1,23 @@
+// Node driver for eh.wat compiled to eh.wasm
+import { readFileSync } from "node:fs";
+const bytes = readFileSync(new URL("./eh.wasm", import.meta.url));
+const t0 = performance.now();
+const { instance } = await WebAssembly.instantiate(bytes, {});
+const e = instance.exports;
+const res = {};
+res.node = process.version;
+res.v8 = process.versions.v8;
+let t = performance.now();
+res.unwind_1000_catch_at_500 = e.unwind_test(1000, 500);
+res.frames_visited = e.frames_visited();
+res.unwind_1000_ms = (performance.now() - t).toFixed(3);
+t = performance.now();
+for (let i = 0; i < 10000; i++) e.unwind_test(50, 0);
+res.unwind_50_x10000_us_each = ((performance.now() - t) * 1000 / 10000).toFixed(2);
+t = performance.now();
+res.tail_1e7 = e.tail_test(10_000_000);
+res.tail_1e7_ms = (performance.now() - t).toFixed(1);
+t = performance.now();
+res.tail_indirect_1e7 = e.tail_indirect_test(10_000_000);
+res.tail_indirect_1e7_ms = (performance.now() - t).toFixed(1);
+console.log(JSON.stringify(res, null, 1));

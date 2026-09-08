@@ -1,0 +1,12 @@
+/home/user/tools/wasi-sdk-27.0-x86_64-linux/bin/../share/wasi-sysroot/include/wasm32-wasip1/setjmp.h:13:2: error: Setjmp/longjmp support requires Exception handling support, which is [not yet standardized](https://github.com/WebAssembly/proposals?tab=readme-ov-file#phase-3---implementation-phase-cg--wg). To enable it, compile with `-mllvm -wasm-enable-sjlj` and use an engine that implements the Exception handling proposal.
+backtrace.c:384:9: error: use of undeclared identifier 'Dl_info'
+backtrace.c:385:13: error: call to undeclared function 'dladdr'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+backtrace.c:385:25: error: use of undeclared identifier 'info'
+backtrace.c:386:47: error: use of undeclared identifier 'info'
+interrupt.c:51:10: fatal error: 'sys/wait.h' file not found
+os-common.c:521:10: fatal error: 'elf.h' file not found
+run-program.c:30:10: fatal error: 'sys/wait.h' file not found
+runtime.c:26:10: fatal error: 'sys/wait.h' file not found
+thread.c:26:10: fatal error: 'sys/wait.h' file not found
+wasm-linux-os.c:18:10: fatal error: 'sys/cachectl.h' file not found
+wrap.c:36:10: fatal error: 'pwd.h' file not found

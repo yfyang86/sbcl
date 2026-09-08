@@ -1,0 +1,16 @@
+wasmtime wasmtime 45.0.0 (377cd917a 2026-05-21)
+unwind_test 1000 500 -> warning: using `--invoke` with a function that takes arguments is experimental and may break in the future
+warning: using `--invoke` with a function that returns values is experimental and may break in the future
+500  (15 ms incl. startup)
+frames_visited  -> warning: using `--invoke` with a function that returns values is experimental and may break in the future
+0  (10 ms incl. startup)
+tail_test 10000000 -> warning: using `--invoke` with a function that takes arguments is experimental and may break in the future
+warning: using `--invoke` with a function that returns values is experimental and may break in the future
+10000000  (26 ms incl. startup)
+tail_indirect_test 10000000 -> warning: using `--invoke` with a function that takes arguments is experimental and may break in the future
+warning: using `--invoke` with a function that returns values is experimental and may break in the future
+10000000  (90 ms incl. startup)
+--- default flags (no -W):
+Error: failed to parse WebAssembly module
+
+Caused by:
