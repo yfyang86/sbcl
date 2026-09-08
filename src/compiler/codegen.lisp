@@ -23,7 +23,10 @@
                                     fixup-notes eh-locs alloc-sites))
              (:copier nil))
   segment bytes text-length fun-table elsewhere-label
-  fixup-notes eh-locs alloc-sites)
+  fixup-notes eh-locs alloc-sites
+  ;; the lowered Wasm functions of the component, an octet vector the
+  ;; fasl carries after the code object (see func-asm.lisp)
+  #+wasm (wasm-code nil))
 
 ;;; KLUDGE: the assembler can not emit backpatches comprising jump tables without
 ;;; knowing the boxed code header length. But there is no compiler IR2 metaobject,
@@ -358,8 +361,9 @@
                                          (make-segment (default-segment-run-scheduler) skew))))
         ;; The Wasm backend lowers the linear code of each entry into a
         ;; structured function once label positions are final.
-        #+wasm (sb-vm::wasm-note-component ir2-component (asm-segment assembly) asmstream
-                                           (reverse sb-vm::*wasm-block-labels*))
+        #+wasm (setf (asm-wasm-code assembly)
+                     (sb-vm::wasm-note-component ir2-component (asm-segment assembly) asmstream
+                                                 (reverse sb-vm::*wasm-block-labels*)))
         assembly))))
 
 (defun label-elsewhere-p (label-or-posn kind elsewhere-label)

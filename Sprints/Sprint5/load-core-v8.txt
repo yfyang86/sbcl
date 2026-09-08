@@ -1,0 +1,6 @@
+size: 38101654 bytes
+compile: 0.111 s
+table: base 4096, 43487 functions
+instantiate: 0.008 s
+table filled: yes
+load-core: ok

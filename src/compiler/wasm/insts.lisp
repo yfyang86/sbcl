@@ -121,6 +121,23 @@
      (integer
       (emit-word segment word)))))
 
+;;; The simple-fun header word: the widetag and the word offset of the
+;;; header from the code object, known once the boxed header length is.
+;;; The word is data in the flat code bytes (genesis, the GC and the
+;;; debugger read it); the function assembler skips it (func-asm.lisp).
+(defun emit-header-data (segment type)
+  (emit-back-patch
+   segment n-word-bytes
+   (lambda (segment posn)
+     (emit-word segment
+                (logior type
+                        (ash (+ posn (sb-c:component-header-length))
+                             (- n-widetag-bits word-shift)))))))
+
+(define-instruction simple-fun-header-word (segment)
+  (:emitter
+   (emit-header-data segment simple-fun-widetag)))
+
 ;;;; Control instructions
 
 (defun emit-block-type (segment type)

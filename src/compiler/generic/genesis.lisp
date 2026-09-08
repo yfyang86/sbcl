@@ -2983,7 +2983,9 @@ Legal values for OFFSET are -4, -8, -12, ..."
           (write-wordindexed/raw asm-code (+ base (incf index)) entrypoint)
           ;; Subtract 1, as the static jump vector uses a 0-based index
           #+immobile-code (setf (aref (cdr *asm-routine-vector*) (1- index))
-                                entrypoint))))))
+                                entrypoint))))
+    ;; the code object, for a fop that follows it on the stack (FOP-WASM-CODE)
+    asm-code))
 
 #+(and x86-64 immobile-code)
 (defun asm-routine-vector-elt-addr (i)
@@ -3047,6 +3049,18 @@ Legal values for OFFSET are -4, -8, -12, ..."
                       ;; determines which instruction flavor we're looking at.
                       '(#xE8 #xE9)))
          (push (list kind offset name) *asm-deferred-fixups*))
+        ;; Wasm code is not in the code object: the fixups are applied to
+        ;; the module (BUILD-WASM-CORE-MODULE); only note foreign symbols.
+        #+wasm
+        (t
+         (progn offset kind) ; only the module patches use them
+         (case flavor
+           (:foreign (alien-linkage-table-note-symbol string nil))
+           (:foreign-dataref (alien-linkage-table-note-symbol string t))
+           ((:assembly-routine :function-type :assembly-routine-entry :code-coverage-index
+             :layout-id))
+           (t (error "unexpected fixup flavor ~S in Wasm code" flavor))))
+        #-wasm
         (t
          (sb-vm:fixup-code-object
            code-obj offset
@@ -3082,6 +3096,155 @@ Legal values for OFFSET are -4, -8, -12, ..."
                      #-linkage-space retained-fixups)
   t)
 
+;;;; The WebAssembly core module (doc/wasm-port/02-design.md, 2.2)
+;;;;
+;;;; The code of every component is in its fasl as a blob of lowered Wasm
+;;;; functions (FOP-WASM-CODE, after the code object). Genesis collects
+;;;; the blobs and, once everything is loaded, builds one module with all
+;;;; of them: the assembler routines first, then the components in load
+;;;; order. Function i of the module is installed in the shared funcref
+;;;; table at +CORE-TABLE-BASE+ + i; simple-fun self slots and fdefn
+;;;; raw-address words hold these table indices.
+
+#+wasm
+(progn
+(defvar *wasm-code-blobs*) ; ((code-descriptor . octets) ...), newest first
+
+(define-cold-fop (fop-wasm-code (length))
+  (let ((code (pop-stack))
+        (octets (make-array length :element-type '(unsigned-byte 8))))
+    (read-sequence octets (fasl-input-stream))
+    (push (cons code octets) *wasm-code-blobs*)
+    code))
+
+(defun wasm-core-module-name (core-file-name)
+  (let ((name (namestring core-file-name)))
+    (concatenate 'string
+                 (if (and (> (length name) 5) (string= name ".core" :start1 (- (length name) 5)))
+                     (subseq name 0 (- (length name) 5))
+                     name)
+                 "-core.wasm")))
+
+(defun make-wasm-core-module ()
+  ;; the same import list as MAKE-LISP-MODULE minus the assembler
+  ;; routines, which are functions of this module
+  (sb-wasm-asm::make-lisp-module))
+
+(defun build-wasm-core-module (core-file-name)
+  "Assemble the core module from the loaded blobs, write it next to the
+core, and store the table indices into simple-fun self slots and fdefn
+raw-address words."
+  (let* ((module (make-wasm-core-module))
+         (blobs (reverse *wasm-code-blobs*))
+         ;; ((code functions entries) ...) in load order
+         (parsed (loop for (code . octets) in blobs
+                       collect (multiple-value-bind (functions entries)
+                                   (sb-wasm-asm::parse-wasm-code octets)
+                                 (list code functions entries))))
+         (base (sb-wasm-asm::wasm-import-count module :func))
+         (n-functions (loop for (nil functions) in parsed sum (length functions)))
+         (routine-index (make-hash-table :test 'equal)) ; routine name -> module index
+         (function-indices '())
+         (index base))
+    ;; module indices: routines are the first blob's functions, from the
+    ;; assembler file loaded first
+    (loop for (code functions) in parsed
+          do (dolist (f functions)
+               (setf (sb-wasm-asm::wasm-function-index f) index)
+               (when (and *assembler-routines*
+                          (= (descriptor-bits code) (descriptor-bits *assembler-routines*)))
+                 (setf (gethash (string-upcase (sb-wasm-asm::wasm-function-name f)) routine-index)
+                       index))
+               (incf index)))
+    (flet ((table-slot (module-index) (+ sb-vm::+core-table-base+ (- module-index base)))
+           (routine (name)
+             (or (gethash (string-upcase name) routine-index)
+                 (error "assembly routine ~A is not in the core module" name)))
+           (foreign-index (name)
+             (or (gethash name *cold-foreign-symbol-table*)
+                 (error "foreign symbol ~A was not noted" name)))
+           (layout-id (qualified-name)
+             ;; PACKAGE::NAME of the classoid, a host symbol keying *COLD-LAYOUTS*
+             (let* ((colons (search "::" qualified-name))
+                    (symbol (intern (subseq qualified-name (+ colons 2))
+                                    (find-package (subseq qualified-name 0 colons)))))
+               (cold-layout-id (or (gethash symbol *cold-layouts*)
+                                   (error "no cold layout for ~S" symbol))))))
+      ;; patch and add every function
+      (loop for (nil functions) in parsed
+            do (dolist (f functions)
+                 (let ((body (sb-wasm-asm::wasm-function-body f)))
+                   (loop for (offset kind operand) in (sb-wasm-asm::wasm-function-patches f)
+                         do (sb-wasm-asm::patch-fixed-leb128
+                             body offset
+                             (ecase kind
+                               (:function (+ (sb-wasm-asm::wasm-function-index (first functions))
+                                             operand))
+                               (:assembly-routine (routine operand))
+                               (:type (sb-wasm-asm::wasm-type-index module (first operand)
+                                                                    (second operand)))
+                               (:assembly-routine-entry (table-slot (routine operand)))
+                               (:foreign (+ sb-vm::+foreign-table-base+ (foreign-index operand)))
+                               (:foreign-dataref
+                                (sb-vm::alien-linkage-index-to-addr (foreign-index (list operand)) t))
+                               (:coverage (error "coverage marks are not supported in the cold core"))
+                               (:layout-id (layout-id operand)))
+                             (sb-wasm-asm::patch-kind-signed-p kind)))
+                   (let ((module-index
+                           (sb-wasm-asm::wasm-add-function
+                            module sb-wasm-asm::+lisp-function-params+
+                            sb-wasm-asm::+lisp-function-results+
+                            (sb-wasm-asm::wasm-function-locals f) body
+                            :name (sb-wasm-asm::wasm-function-name f))))
+                     (aver (= module-index (sb-wasm-asm::wasm-function-index f)))
+                     (push module-index function-indices)))))
+      (sb-wasm-asm::wasm-add-elements
+       module 0 (sb-wasm-asm::i32-const-expression sb-vm::+core-table-base+)
+       (nreverse function-indices))
+      ;; the table range, for the runtime to size the table before
+      ;; instantiating: two little-endian u32, base and count
+      (let ((octets (make-array 8 :element-type '(unsigned-byte 8))))
+        (loop for (value start) in (list (list sb-vm::+core-table-base+ 0) (list n-functions 4))
+              do (dotimes (i 4)
+                   (setf (aref octets (+ start i)) (ldb (byte 8 (* 8 i)) value))))
+        (sb-wasm-asm::wasm-add-custom-section module "sbcl.core.table" octets))
+      ;; simple-fun self slots: the table index of the entry's function
+      (loop for (code functions entries) in parsed
+            do (loop for fun-index from 0
+                     for local in entries
+                     do (let ((fn (%code-entry-point code fun-index)))
+                          (write-wordindexed/raw
+                           fn sb-vm:simple-fun-self-slot
+                           (table-slot (sb-wasm-asm::wasm-function-index (nth local functions)))))))
+      ;; fdefn raw addresses: the function's table index, or a trampoline
+      (let ((closure-tramp (table-slot (routine "CLOSURE-TRAMP")))
+            (undefined-tramp (table-slot (routine "UNDEFINED-TRAMP"))))
+        (loop for fdefn being each hash-value of *cold-fdefn-objects*
+              do (let ((fun (read-wordindexed fdefn sb-vm:fdefn-fun-slot)))
+                   (write-wordindexed/raw
+                    fdefn sb-vm:fdefn-raw-addr-slot
+                    (cond ((cold-null fun) undefined-tramp)
+                          ((= (descriptor-lowtag fun) sb-vm:fun-pointer-lowtag)
+                           (if (= (descriptor-widetag fun) sb-vm:simple-fun-widetag)
+                               (read-bits-wordindexed fun sb-vm:simple-fun-self-slot)
+                               closure-tramp))
+                          (t (error "fdefn ~S holds ~S" fdefn fun)))))))
+      (let ((name (wasm-core-module-name core-file-name)))
+        (sb-wasm-asm::write-wasm-module module name)
+        (format t "~&; wrote ~A: ~D functions from ~D code components, table ~D..~D~%"
+                name n-functions (length parsed) sb-vm::+core-table-base+
+                (+ sb-vm::+core-table-base+ n-functions -1)))
+      ;; the foreign symbols the runtime must provide, for its linkage table
+      (with-open-file (stream (concatenate 'string (wasm-core-module-name core-file-name)
+                                           ".symbols")
+                              :direction :output :if-exists :supersede)
+        (let ((entries '()))
+          (maphash (lambda (key index) (push (cons index key) entries)) *cold-foreign-symbol-table*)
+          (loop for (index . key) in (sort entries #'< :key #'car)
+                do (format stream "~D ~A ~A~%" index (if (consp key) "data" "function")
+                           (if (consp key) (car key) key))))))))
+) ; end PROGN
+
 ;;;; sanity checking space layouts
 
 (defun check-spaces ()
@@ -4387,6 +4550,7 @@ INDEX   LINK-ADDR       FNAME    FUNCTION  NAME
            (*!cold-toplevels* nil)
            *asm-routine-alist*
            *assembler-routines*
+           #+wasm (*wasm-code-blobs* nil)
            (*deferred-known-fun-refs* nil))
 
       (make-nil-descriptor)
@@ -4456,6 +4620,7 @@ INDEX   LINK-ADDR       FNAME    FUNCTION  NAME
       (when core-file-name
         (sort-initial-methods)
         (resolve-deferred-known-funs)
+        #+wasm (build-wasm-core-module core-file-name)
         (setq foreign-symbols (foreign-symbols-to-core))
         (finish-symbols)
         (finalize-load-time-value-noise))

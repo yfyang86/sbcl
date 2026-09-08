@@ -42,6 +42,8 @@
   (start nil)
   ;; active element segments: (table-index offset-instruction-bytes function-indices)
   (elements (make-array 1 :adjustable t :fill-pointer 0))
+  ;; custom sections: (name . octets), newest first
+  (custom-sections '())
   ;; (offset-instruction-bytes-or-nil octets): NIL offset means passive
   (datas (make-array 1 :adjustable t :fill-pointer 0)))
 
@@ -206,6 +208,11 @@ octet vector of instructions ending with END. Returns the function index."
     (buffer-uleb128 b global-index)
     (coerce b '(simple-array (unsigned-byte 8) (*)))))
 
+(defun wasm-add-custom-section (module name octets)
+  "A custom section NAME with OCTETS as its payload, written before the
+name section."
+  (push (cons name octets) (wasm-module-custom-sections module)))
+
 (defun wasm-add-data (module offset octets)
   "OFFSET is an initializer expression for an active segment in memory 0,
 or NIL for a passive segment."
@@ -348,6 +355,12 @@ or NIL for a passive segment."
                (buffer-uleb128 b (length octets))
                (buffer-octets b octets))
       (buffer-section out 11 b))
+    ;; 0 custom sections added by WASM-ADD-CUSTOM-SECTION
+    (loop for (name . octets) in (reverse (wasm-module-custom-sections module))
+          do (let ((b (make-octet-buffer)))
+               (buffer-name b name)
+               (buffer-octets b octets)
+               (buffer-section out 0 b)))
     ;; 0 custom "name": function names, for debugging and profiling
     (let ((named (loop for f across functions
                        for i from (wasm-import-count module :func)

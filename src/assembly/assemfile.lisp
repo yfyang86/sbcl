@@ -74,13 +74,14 @@
                      (loop for (this . rest) on *entry-points*
                            when (assoc (car this) rest)
                            collect (car this))))
-            #+wasm (sb-vm::wasm-note-assembly-routines (asm-segment assembly) *entry-points*)
             (dump-assembler-routines (asm-segment assembly)
                                      (segment-buffer (asm-segment assembly))
                                      (asm-fixup-notes assembly)
                                      (asm-alloc-sites assembly)
                                      *entry-points*
-                                     lap-fasl-output))
+                                     lap-fasl-output
+                                     #+wasm (sb-vm::wasm-note-assembly-routines
+                                             (asm-segment assembly) *entry-points*)))
           (setq won t))
       (close-fasl-output lap-fasl-output (not won)))
     won))
