@@ -1,2 +1,2 @@
-:gencgc
-:compare-and-swap-vops :memory-barrier-vops
+:gencgc :soft-card-marks
+:compare-and-swap-vops

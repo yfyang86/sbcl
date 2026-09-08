@@ -112,6 +112,9 @@
   ;; or NIL if a control transfer hasn't been queued. When a delayed
   ;; branch is queued, this slot is set to the delay count.
   (branch-countdown nil :type (or null (and fixnum unsigned-byte)))
+  ;; Backend-specific data attached to the segment. The Wasm backend
+  ;; records its control-flow notes here (see wasm/insts.lisp).
+  (backend-data nil)
   ;; *** These two slots are used both by the queuing noise and the
   ;; scheduling noise.
   ;;
