@@ -33,12 +33,18 @@
 #include <math.h>
 
 #ifndef LISP_FEATURE_WIN32
+#ifndef LISP_FEATURE_WASM
 #include <pwd.h>
+#endif
 #include <time.h>
 #include <sys/time.h>
+#ifndef LISP_FEATURE_WASM
 #include <sys/wait.h>
+#endif
 #include <sys/resource.h>
+#ifndef LISP_FEATURE_WASM
 #include <netdb.h>
+#endif
 #endif
 #include <stdio.h>
 
@@ -271,7 +277,30 @@ fstat_wrapper(int filedes, struct stat_wrapper *buf)
 
 int sb_mkstemp (char *template, mode_t mode) {
   int fd;
-#ifdef LISP_FEATURE_WIN32
+#if defined LISP_FEATURE_WASM
+  /* wasi-libc has no mkstemp (no temporary directories); the template's
+   * trailing Xs are filled from a counter mixed with the clock, which is
+   * as good as it gets without processes to race against. */
+  static const char letters[] =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  size_t len = strlen(template), nx = 0;
+  unsigned attempt;
+  while (nx < len && template[len - 1 - nx] == 'X') nx++;
+  if (nx == 0) { errno = EINVAL; return -1; }
+  for (attempt = 0; attempt < 100; attempt++) {
+    unsigned long v = (unsigned long)clock() ^ (attempt * 2654435761UL);
+    size_t i;
+    for (i = 0; i < nx; i++) {
+      template[len - 1 - i] = letters[v % 62];
+      v /= 62;
+    }
+    if ((fd = open(template, O_CREAT|O_EXCL|O_RDWR, mode)) != -1)
+      return fd;
+    if (errno != EEXIST)
+      return -1;
+  }
+  return -1;
+#elif defined LISP_FEATURE_WIN32
 #define PATHNAME_BUFFER_SIZE MAX_PATH
   char buf[PATHNAME_BUFFER_SIZE];
 
@@ -322,7 +351,7 @@ int sb_mkstemp (char *template, mode_t mode) {
  * getpwuid() stuff
  */
 
-#ifndef LISP_FEATURE_WIN32
+#if !defined LISP_FEATURE_WIN32 && !defined LISP_FEATURE_WASM
 /* Return a newly-allocated string holding the username for "uid", or
  * NULL if there's no such user.
  *
@@ -442,7 +471,7 @@ int sb_select(int top_fd, DWORD *read_set, DWORD *write_set, DWORD *except_set, 
 
 /* We will need to define these things or their equivalents for Win32
    eventually, but for now let's get it working for everyone else. */
-#ifndef LISP_FEATURE_WIN32
+#if !defined LISP_FEATURE_WIN32 && !defined LISP_FEATURE_WASM
 /* From SB-BSD-SOCKETS, to get h_errno */
 int get_h_errno()
 {
@@ -475,7 +504,7 @@ int wifstopped(int status) {
 int wstopsig(int status) {
     return WSTOPSIG(status);
 }
-#endif  /* !LISP_FEATURE_WIN32 */
+#endif  /* !LISP_FEATURE_WIN32 && !LISP_FEATURE_WASM */
 
 /* From SB-POSIX, stat-macros */
 int s_isreg(mode_t mode)
@@ -563,6 +592,24 @@ int sb_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
         return select(nfds, readfds, writefds, exceptfds, timeout);
 }
 
+#ifdef LISP_FEATURE_WASM
+/* WASI has no interval timers (nor the struct); the host's timer support
+ * (a later sprint) replaces them. Report ENOSYS so that Lisp callers see
+ * an error. */
+#include <errno.h>
+struct itimerval;
+int sb_getitimer(int which, struct itimerval *value)
+{
+        errno = ENOSYS;
+        return -1;
+}
+
+int sb_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
+{
+        errno = ENOSYS;
+        return -1;
+}
+#else
 int sb_getitimer(int which, struct itimerval *value)
 {
         return getitimer(which, value);
@@ -572,6 +619,7 @@ int sb_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
 {
         return setitimer(which, value, ovalue);
 }
+#endif
 
 int sb_utimes(char *path, struct timeval times[2])
 {
@@ -582,7 +630,7 @@ int sb_clock_gettime(clockid_t id, struct timespec* tp)
 {
     return clock_gettime(id, tp);
 }
-#ifndef LISP_FEATURE_SB_THREAD
+#if !defined LISP_FEATURE_SB_THREAD && !defined LISP_FEATURE_WASM /* wasm: wasm-interrupt.c */
 #include <signal.h>
 int sb_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {

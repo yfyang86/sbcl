@@ -1,0 +1,46 @@
+sbcl-wasm: module of 43492 functions at table 4096..47588: compile 27.375 s, instantiate 0.007 s
+; call_into_lisp: function 0x129d5945 (table index 46413), 0 argument(s)
+sbcl-wasm: error while executing at wasm backtrace:
+    0: 0x1eae273 - <unknown>!lambda1
+    1: 0x9d2f2b - <unknown>!lambda1
+    2: 0x2469a9c - <unknown>!lambda1
+    3: 0x246c042 - <unknown>!lambda1
+    4:  0x13eaf - sbcl.wasm!call_into_lisp
+    5:   0x4742 - sbcl.wasm!funcall0
+    6:  0x12f00 - sbcl.wasm!create_main_lisp_thread
+    7:  0x123b8 - sbcl.wasm!initialize_lisp
+    8:   0xc43d - sbcl.wasm!main
+    9:  0x2432a - sbcl.wasm!__main_void
+   10:    0xabd - sbcl.wasm!_start
+note: using the `WASMTIME_BACKTRACE_DETAILS=1` environment variable may show more debugging information
+
+Caused by:
+    0: memory fault at wasm address 0xfffffffd in linear memory of size 0x32780000
+    1: wasm trap: out of bounds memory access
+
+Stack backtrace:
+   0: wasmtime_internal_core::error::backtrace::capture
+   1: wasmtime_internal_core::error::error::Error::new
+   2: wasmtime::runtime::trap::from_runtime_box
+   3: wasmtime::runtime::vm::traphandlers::catch_traps
+   4: wasmtime::runtime::func::invoke_wasm_and_catch_traps
+   5: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call_raw
+   6: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call
+   7: sbcl_wasm::main
+   8: std::sys::backtrace::__rust_begin_short_backtrace
+   9: std::rt::lang_start::{{closure}}
+  10: std::rt::lang_start_internal
+  11: main
+  12: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  13: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  14: _start
+
+sbcl-wasm: Lisp registers at the trap:
+
+   NARGS 0xc CSP 0x3010011c CFP 0xc OCFP 0x0 NFP 0x0 NSP 0x10abb0
+   LEXENV 0x1100033 CODE 0x0 LIP 0x0 CFUNC 0x1d A0 0x12356015 A1 0x123591c5
+   A2 0x1235bf8d A3 0x12356015 L0 0x9b98 L1 0x78 L2 0x123591c5 L3 0x1235bf8d
+   L4 0x10ee1715 L5 0x0 NL0 0x1e NL1 0x8 NL2 0x0 NL3 0x30100000
+   NL4 0x4 NL5 0x4 NL6 0x0 NL7 0x4 TMP 0x12 RA 0x0

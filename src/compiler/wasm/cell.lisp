@@ -89,6 +89,30 @@
   (:save-p :compute-only))
 
 ;;; With unbound check.
+;;; The hash word of a symbol: the name hash in the high bits, three
+;;; pseudorandom bits in the low ones (as on the other 32-bit backends).
+(define-vop (symbol-hash)
+  (:policy :fast-safe)
+  (:translate symbol-hash)
+  (:args (symbol :scs (descriptor-reg)))
+  (:results (res :scs (unsigned-reg)))
+  (:result-types positive-fixnum)
+  (:generator 2
+    (store-reg res
+      (load-reg symbol)
+      (emit-load-word (- (* symbol-hash-slot n-word-bytes) other-pointer-lowtag))
+      (inst i32.const (ldb (byte n-positive-fixnum-bits 0) -1))
+      (inst i32.and))))
+
+(define-vop (symbol-name-hash symbol-hash)
+  (:translate symbol-name-hash)
+  (:generator 1
+    (store-reg res
+      (load-reg symbol)
+      (emit-load-word (- (* symbol-hash-slot n-word-bytes) other-pointer-lowtag))
+      (inst i32.const 3)
+      (inst i32.shr_u))))
+
 (define-vop (symbol-value checked-cell-ref)
   (:translate symbol-value)
   (:generator 9

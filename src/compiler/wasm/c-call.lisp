@@ -98,7 +98,8 @@
 ;;;; Foreign calls (doc/wasm-port/02-design.md, 2.9)
 ;;;;
 ;;;; A foreign function is an entry of the shared function table; its
-;;;; "address" (the SAP of the foreign symbol) is the table index. The
+;;;; "address" (the SAP of the foreign symbol, read from the linkage
+;;;; table cell the runtime filled) is the table index. The
 ;;;; arguments were moved to their number-stack slots; CALL-OUT pushes
 ;;;; them on the operand stack and calls through the table with the type
 ;;;; the alien function type describes (a :FUNCTION-TYPE fixup the module
@@ -199,8 +200,10 @@
                              +number-stack-alignment-mask+)))
         (store-reg nsp-tn (emit-reg-plus nsp-tn delta))))))
 
-;;; The SAP of a foreign function is its table index, of a foreign data
-;;; symbol the address of its linkage entry; both are load-time fixups.
+;;; The SAP of a foreign function is the table index the runtime stored
+;;; in the symbol's linkage cell (OS_LINK_RUNTIME; a C function pointer
+;;; is a table index), of a foreign data symbol the address it stored
+;;; there. Both fixups resolve to the cell's address.
 (define-vop (foreign-symbol-sap)
   (:translate foreign-symbol-sap)
   (:policy :fast-safe)
@@ -210,7 +213,9 @@
   (:results (res :scs (sap-reg)))
   (:result-types system-area-pointer)
   (:generator 2
-    (store-reg res (inst i32.const (make-fixup foreign-symbol :foreign)))))
+    (store-reg res
+      (inst i32.const (make-fixup foreign-symbol :foreign))
+      (inst i32.load 0))))
 
 (define-vop (foreign-symbol-dataref-sap)
   (:translate foreign-symbol-dataref-sap)

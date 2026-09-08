@@ -20,7 +20,18 @@
 #include "genesis/static-symbols.h"
 #include "genesis/symbol.h"
 
-#if defined LISP_FEATURE_SPARC || defined LISP_FEATURE_PPC || defined LISP_FEATURE_PPC64
+#if defined LISP_FEATURE_WASM
+
+/* Wasm: allocation is a C call, and Lisp code cannot be interrupted between
+ * instructions, so the runtime treats every allocation as pseudo-atomic and
+ * never has an interrupted pseudo-atomic section to service. */
+# define get_pseudo_atomic_atomic(th) 1
+# define clear_pseudo_atomic_atomic(th) ((void)0)
+# define get_pseudo_atomic_interrupted(th) 0
+# define set_pseudo_atomic_interrupted(th) ((void)0)
+# define clear_pseudo_atomic_interrupted(th) ((void)0)
+
+#elif defined LISP_FEATURE_SPARC || defined LISP_FEATURE_PPC || defined LISP_FEATURE_PPC64
 
 /* These architectures make no distinction between +/- sb-thread.
  * They always use per-thread bit and never static symbols for the PA bits.
@@ -39,7 +50,7 @@
 # define clear_pseudo_atomic_interrupted(th) (th)->pseudo_atomic_bits[2] = 0
 
 #elif defined LISP_FEATURE_ARM || defined LISP_FEATURE_ARM64 \
-  || defined LISP_FEATURE_MIPS || defined LISP_FEATURE_RISCV || defined LISP_FEATURE_WASM \
+  || defined LISP_FEATURE_MIPS || defined LISP_FEATURE_RISCV \
   || defined LISP_FEATURE_LOONGARCH64
 #include "thread.h" // for SymbolValue
 

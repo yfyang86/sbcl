@@ -78,13 +78,11 @@
 (defconstant alien-linkage-table-entry-size #-64-bit 4 #+64-bit 8)
 
 ;;; Layout of the shared funcref table: the runtime's own function
-;;; pointers come first (clang assigns them from 1); the functions the
-;;; alien linkage table names are installed by the runtime from
-;;; +FOREIGN-TABLE-BASE+ on, in linkage index order; the core module's
-;;; functions occupy +CORE-TABLE-BASE+ on (genesis assigns them, and
-;;; simple-fun self slots hold these indices); modules loaded at run
+;;; pointers come first (clang assigns them from 1; a foreign function's
+;;; index is what OS_LINK_RUNTIME stores in its linkage cell); the core
+;;; module's functions occupy +CORE-TABLE-BASE+ on (genesis assigns them,
+;;; and simple-fun self slots hold these indices); modules loaded at run
 ;;; time get ranges above the core's.
-(defconstant +foreign-table-base+ 1024)
 (defconstant +core-table-base+ 4096)
 (defconstant alien-linkage-table-growth-direction :up)
 (setq *alien-linkage-table-predefined-entries* '(("alloc" nil)
