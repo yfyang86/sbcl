@@ -348,9 +348,13 @@
            (skew (if (and (= code-boxed-words-align 1) (oddp n-boxed))
                      sb-vm:n-word-bytes
                      0)))
-      (assemble-sections asmstream
-                         (ir2-component-entries ir2-component)
-                         (make-segment (default-segment-run-scheduler) skew)))))
+      (let ((assembly (assemble-sections asmstream
+                                         (ir2-component-entries ir2-component)
+                                         (make-segment (default-segment-run-scheduler) skew))))
+        ;; The Wasm backend lowers the linear code of each entry into a
+        ;; structured function once label positions are final.
+        #+wasm (sb-vm::wasm-note-component ir2-component (asm-segment assembly) asmstream)
+        assembly))))
 
 (defun label-elsewhere-p (label-or-posn kind elsewhere-label)
   (let ((elsewhere (label-position elsewhere-label))

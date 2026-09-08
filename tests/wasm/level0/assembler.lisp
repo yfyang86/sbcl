@@ -217,16 +217,16 @@
       (check "note kinds in order"
              (equal (mapcar #'control-note-kind notes)
                     '(:func-begin :jump :jump-if :jump-table :func-end)))
-      ;; only the real instructions occupy bytes: 3 x (i32.const n) = 6, i32.eqz = 1
-      (check "pseudo-ops emit nothing" (= (length bytes) 7))
+      ;; 3 x (i32.const n) = 6, i32.eqz = 1, five one-byte pseudo-ops
+      (check "pseudo-ops occupy one byte each" (= (length bytes) 12))
       (check "jump position after first const"
-             (= (control-note-posn (second notes)) 2))
-      (check "jump-if position" (= (control-note-posn (third notes)) 5))
+             (= (control-note-posn (second notes)) 3))
+      (check "jump-if position" (= (control-note-posn (third notes)) 7))
       (check "labels used" (and (sb-assem:label-usedp l1) (sb-assem:label-usedp l2)
                                 (sb-assem:label-usedp l3)))
-      (check "label positions" (and (= (sb-assem:label-position l1) 2)
-                                    (= (sb-assem:label-position l2) 5)
-                                    (= (sb-assem:label-position l3) 7)))
+      (check "label positions" (and (= (sb-assem:label-position l1) 4)
+                                    (= (sb-assem:label-position l2) 8)
+                                    (= (sb-assem:label-position l3) 11)))
       (check "jump-table data" (eq (control-note-data (fourth notes)) l3)))))
 
 ;;;; T6: fixups produce fixed-width immediates and notes
@@ -249,6 +249,78 @@
              (= (sb-c:fixup-note-position
                  (find :leb128 notes :key #'sb-c:fixup-note-kind))
                 2)))))
+
+;;;; T8: the function assembler lowers label streams to structured code
+
+(defun lower-function (thunk &key params results locals)
+  "Assemble THUNK's label stream through a section, then lower it. The
+entry is the first label THUNK returns."
+  (let* ((segment (sb-assem:make-segment))
+         (section (sb-assem::make-section))
+         (entry (sb-assem:assemble (section) (funcall thunk))))
+    (sb-assem::%assemble segment section)
+    (wasm-function-body segment entry (sb-assem::segment-final-posn segment)
+                        :params params :results results :locals locals)))
+
+(defun test-function-assembler ()
+  (let ((m (make-wasm-module)))
+    ;; sum 1..10 with a backward jump; locals 2 = i, 3 = acc ($pc 0, scratch 1)
+    (multiple-value-bind (body locals)
+        (lower-function
+         (lambda ()
+           (let ((entry (sb-assem:gen-label)) (head (sb-assem:gen-label))
+                 (done (sb-assem:gen-label)))
+             (sb-assem:emit-label entry)
+             (inst i32.const 10) (inst local.set 2)
+             (sb-assem:emit-label head)
+             (inst local.get 2) (inst i32.eqz) (inst jump-if done)
+             (inst local.get 3) (inst local.get 2) (inst i32.add) (inst local.set 3)
+             (inst local.get 2) (inst i32.const 1) (inst i32.sub) (inst local.set 2)
+             (inst jump head)
+             (sb-assem:emit-label done)
+             (inst local.get 3) (inst return)
+             entry))
+         :locals '((2 . :i32)))
+      (wasm-add-function m '() '(:i32) locals body :name "sum10" :export "sum10"))
+    ;; a three-way jump table on the parameter; $pc is local 1, scratch 2
+    (multiple-value-bind (body locals)
+        (lower-function
+         (lambda ()
+           (let ((entry (sb-assem:gen-label)) (a (sb-assem:gen-label))
+                 (b (sb-assem:gen-label)) (c (sb-assem:gen-label))
+                 (default (sb-assem:gen-label)))
+             (sb-assem:emit-label entry)
+             (inst local.get 0)
+             (inst jump-table (list a b c) default)
+             (sb-assem:emit-label a) (inst i32.const 10) (inst return)
+             (sb-assem:emit-label b) (inst i32.const 20) (inst return)
+             (sb-assem:emit-label c) (inst i32.const 30) (inst return)
+             (sb-assem:emit-label default) (inst i32.const 99) (inst return)
+             entry))
+         :params '(:i32))
+      (wasm-add-function m '(:i32) '(:i32) locals body :name "pick" :export "pick"))
+    ;; a jump immediately before its own target label: the empty arm case,
+    ;; and a forward jump over dead code
+    (multiple-value-bind (body locals)
+        (lower-function
+         (lambda ()
+           (let ((entry (sb-assem:gen-label)) (skip (sb-assem:gen-label))
+                 (next (sb-assem:gen-label)))
+             (sb-assem:emit-label entry)
+             (inst jump skip)
+             (inst i32.const 1) (inst return)
+             (sb-assem:emit-label skip)
+             (inst jump next)
+             (sb-assem:emit-label next)
+             (inst i32.const 7) (inst return)
+             entry)))
+      (wasm-add-function m '() '(:i32) locals body :name "skip" :export "skip"))
+    (write-module "funcasm" m)
+    (expect "funcasm" "sum10" '() 55)
+    (expect "funcasm" "pick" '(0) 10)
+    (expect "funcasm" "pick" '(2) 30)
+    (expect "funcasm" "pick" '(7) 99)
+    (expect "funcasm" "skip" '() 7)))
 
 ;;;; T7: imports, globals, data and the name section
 
@@ -278,6 +350,7 @@
   (test-control-notes)
   (test-fixups)
   (test-module-sections)
+  (test-function-assembler)
   (with-open-file (s (format nil "~A/expected.txt" out-dir) :direction :output :if-exists :supersede)
     (dolist (line (reverse *expected*)) (write-line line s)))
   (format t "~&level0 lisp checks: ~D, failures: ~D~%" *checks* *failures*)

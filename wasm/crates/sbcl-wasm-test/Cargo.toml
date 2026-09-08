@@ -1,0 +1,14 @@
+[package]
+name = "sbcl-wasm-test"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+description = "Runs compiler-only differential tests for the SBCL WebAssembly backend"
+
+[[bin]]
+name = "sbcl-wasm-test"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+wasmtime.workspace = true

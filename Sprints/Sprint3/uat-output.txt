@@ -1,0 +1,19 @@
+== cross-compiler
+PASS  crossbuild pass-1 builds obj/xbuild/wasm/xc.core
+PASS  the whole tree cross-compiles into after-xc.core
+PASS  pass-1 log has no warnings
+PASS  unimplemented VOP worklist written
+PASS  no placeholder generators remain in the simple VOP families
+== level 0
+PASS  level-0: 16 checks, all modules validate and run
+PASS  level-0 ran the function assembler tests (dispatch loop, jump table)
+== differential rig
+PASS  mini-runtime builds (wasi-sdk)
+PASS  Rust driver builds
+== level 1
+PASS  level-1: level1: passed=271 failed=0
+PASS  at least fifty level-1 cases pass (got 271)
+PASS  no case skipped (not compiled or unimplemented VOP)
+
+passed=12 failed=0
+uat exit=0

@@ -396,6 +396,7 @@
  ("src/compiler/target-dstate" :not-host)
  ("src/compiler/asm-target/insts")
  #+wasm ("src/compiler/wasm/module")
+ #+wasm ("src/compiler/wasm/func-asm")
  #+avx2 ("src/compiler/{arch}/avx2-insts")
  #+avx512 ("src/compiler/{arch}/avx512-insts")
  ("src/compiler/{arch}/macros")

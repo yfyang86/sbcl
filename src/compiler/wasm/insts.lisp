@@ -369,16 +369,21 @@
 ;;;; Control-flow pseudo-instructions
 ;;;;
 ;;;; These take assembler labels, as branch instructions do on every other
-;;;; backend, and emit nothing. Each records a CONTROL-NOTE with its final
-;;;; position on the segment's BACKEND-DATA. The notes are recorded when
-;;;; the segment is finalized (they are zero-size back-patches), so their
-;;;; positions are the final ones, comparable with LABEL-POSITION.
+;;;; backend. Each occupies exactly one byte in the segment (a NOP that the
+;;;; function assembler replaces) and records a CONTROL-NOTE with its final
+;;;; position on the segment's BACKEND-DATA. Occupying a byte keeps the
+;;;; order of notes and labels at the same point unambiguous: a jump
+;;;; emitted before a label has a smaller position than the label. The
+;;;; notes are recorded when the segment is finalized (they are
+;;;; back-patches), so their positions are final.
+
+(defconstant +control-note-bytes+ 1)
 
 (defstruct (control-note (:constructor make-control-note (kind posn labels data))
                          (:copier nil))
   ;; :jump :jump-if :jump-table :func-begin :func-end
   (kind nil :type symbol :read-only t)
-  ;; byte position in the finalized segment
+  ;; byte position in the finalized segment of the note's placeholder byte
   (posn 0 :type index :read-only t)
   ;; the label, or for :jump-table the list of labels
   (labels nil :read-only t)
@@ -389,13 +394,14 @@
   (dolist (label (if (listp labels) labels (list labels)))
     (when label (setf (sb-assem::label-usedp label) t)))
   (emit-back-patch
-   segment 0
+   segment +control-note-bytes+
    (lambda (segment posn)
      (push (make-control-note kind posn labels data)
-           (sb-assem::segment-backend-data segment)))))
+           (sb-assem::segment-backend-data segment))
+     (emit-byte segment #x01))))
 
 ;;; Return the control notes of a finalized SEGMENT in emission order,
-;;; which is also position order (several notes may share a position).
+;;; which is also position order.
 (defun segment-control-notes (segment)
   (reverse (sb-assem::segment-backend-data segment)))
 
