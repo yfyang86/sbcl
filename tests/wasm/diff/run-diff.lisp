@@ -24,9 +24,34 @@
     ((eql t) (+ sb-vm:nil-value (sb-vm:static-symbol-offset t)))
     (t (error "no raw word for ~S" value))))
 
+;;; The cases are read in a target package, where DOUBLE-FLOAT, TRUNCATE
+;;; and the like are the SB-XC shadows the cross-compiler defines; the
+;;; host's COMPILE wants the CL symbols.
+(defun host-form (form)
+  (let ((sb-xc (find-package "SB-XC"))
+        ;; the host's SYMBOL-PACKAGE (this package sees XC-STRICT-CL)
+        (symbol-package (find-symbol "SYMBOL-PACKAGE" "COMMON-LISP"))
+        (package-name (find-symbol "PACKAGE-NAME" "COMMON-LISP")))
+    (labels ((host-symbol (x)
+               (let ((package (funcall symbol-package x)))
+                 (cond ((null package) x)
+                       ((eq package sb-xc)
+                        (or (find-symbol (symbol-name x) "COMMON-LISP") x))
+                       (t
+                        ;; SB-KERNEL:DOUBLE-FLOAT-HIGH-BITS and the like:
+                        ;; the host's own version lives in HOST-SB-KERNEL
+                        (let ((host (find-package
+                                     (concatenate 'string "HOST-" (funcall package-name package)))))
+                          (or (and host (find-symbol (symbol-name x) host)) x))))))
+             (walk (x)
+               (cond ((consp x) (cons (walk (car x)) (walk (cdr x))))
+                     ((symbolp x) (host-symbol x))
+                     (t x))))
+      (walk form))))
+
 (defun host-eval (lambda-list body args)
   "Apply the case's function in the host, with the target's fixnum range."
-  (let ((fn (compile nil `(lambda ,lambda-list ,@body))))
+  (let ((fn (compile nil (host-form `(lambda ,lambda-list ,@body)))))
     (apply fn args)))
 
 ;;; The cross-compiler needs the same dynamic state make-host-2 gives it
@@ -55,13 +80,16 @@
 (defun case-function-name (name)
   (format nil "WASM-CASE-~:@(~A~)" name))
 
-(defun component-hook (ir2-component functions unimplemented)
+;;; Every entry of the component maps to (position functions asm-routines
+;;; unimplemented): the module holds all the component's functions, the
+;;; case calls the entry at POSITION.
+(defun component-hook (ir2-component functions asm-routines unimplemented)
   (declare (ignore ir2-component))
-  (dolist (entry functions)
-    (destructuring-bind (entry-info body locals) entry
-      (let ((name (sb-c::entry-info-name entry-info)))
-        (setf (gethash (string name) *diff-functions*)
-              (list body locals unimplemented))))))
+  (dolist (function functions)
+    (let ((entry (wasm-function-entry function)))
+      (when entry
+        (setf (gethash (string (sb-c::entry-info-name entry)) *diff-functions*)
+              (list (wasm-function-index function) functions asm-routines unimplemented))))))
 
 (defun run-diff (cases-file out-dir)
   (ensure-directories-exist (format nil "~A/" out-dir))
@@ -84,27 +112,37 @@
     (clrhash *diff-functions*)
     (let ((*wasm-component-hook* #'component-hook))
       (call-in-target-mode (lambda () (sb-xc:compile-file source :output-file fasl))))
+    ;; the assembly routines, as a module exporting them
+    (let ((*wasm-assembly-hook*
+            (lambda (functions asm-routines)
+              (let ((m (make-lisp-module :asm-routines asm-routines)))
+                (add-lisp-functions m functions :export t)
+                (write-wasm-module m (format nil "~A/asm.wasm" out-dir))))))
+      (call-in-target-mode
+       (lambda ()
+         (sb-c::assemble-file "src/assembly/wasm/assem-rtns.lisp"
+                              :output-file (format nil "~A/assem-rtns.assem-obj" out-dir)))))
     ;; one module per case
     (dolist (c cases)
       (destructuring-bind (name lambda-list body &rest arg-lists) c
         (let ((found (gethash (case-function-name name) *diff-functions*)))
           (cond ((not found)
                  (push (format nil "# ~A: not compiled" name) case-lines))
-                ((third found)
-                 (push (format nil "# ~A: unimplemented VOPs ~{~A~^ ~}" name (third found))
+                ((fourth found)
+                 (push (format nil "# ~A: unimplemented VOPs ~{~A~^ ~}" name (fourth found))
                        case-lines))
                 (t
-                 (destructuring-bind (body-octets locals unimplemented) found
+                 (destructuring-bind (position functions asm-routines unimplemented) found
                    (declare (ignore unimplemented))
-                   (let ((m (make-lisp-module))
+                   (let ((m (make-lisp-module :asm-routines asm-routines))
                          (file (format nil "~A.wasm" (string-downcase name))))
-                     (add-lisp-functions m (list (list (string-downcase name) body-octets locals)))
+                     (add-lisp-functions m functions)
                      (write-wasm-module m (format nil "~A/~A" out-dir file))
                      (incf n-modules)
                      (dolist (args arg-lists)
                        (let ((expected (host-eval lambda-list body args)))
-                         (push (format nil "~A 0 ~{~D ~}=> ~D ~A"
-                                       file (mapcar #'target-word args)
+                         (push (format nil "~A ~D ~{~D ~}=> ~D ~A"
+                                       file position (mapcar #'target-word args)
                                        (target-word expected) name)
                                case-lines))))))))))
     (with-open-file (s (format nil "~A/cases.txt" out-dir) :direction :output :if-exists :supersede)

@@ -58,8 +58,8 @@
 
 ;;;; Special purpose inline allocators.
 
-;;; The raw-addr slot gets the entry of the undefined-function
-;;; trampoline once the call convention defines it; until then it is 0.
+;;; The raw-addr slot gets the table entry of the undefined-function
+;;; trampoline (see cell.lisp).
 (define-vop (make-fdefn)
   (:args (name :scs (descriptor-reg) :to :save))
   (:results (result :scs (descriptor-reg)))
@@ -73,7 +73,7 @@
         (inst i32.const nil-value))
       (load-reg result)
       (emit-store-word (- (ash fdefn-raw-addr-slot word-shift) other-pointer-lowtag)
-        (inst i32.const 0)))))
+        (inst i32.const (make-fixup 'undefined-tramp :assembly-routine-entry))))))
 
 ;;; Push the byte size of a vector of WORDS (a fixnum) data words,
 ;;; including the header and length words, rounded to a double word.

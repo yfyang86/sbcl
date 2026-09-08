@@ -130,7 +130,8 @@
 (define-type-predicate string-designator-p string-designator)
 
 
-(defglobal *backend-type-predicates-grouped*
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compute-backend-type-predicates-grouped ()
   (let ((classes (make-array (count-if #'identity sb-kernel::*type-classes*)
                              :initial-element nil)))
     (dolist (cell *backend-type-predicates*)
@@ -142,8 +143,16 @@
               (when elements
                 (let ((types (coerce (mapcar 'car elements) 'vector))
                       (preds (coerce (mapcar 'cdr elements) 'vector)))
-                  (cons types preds))))))))
+                  (cons types preds)))))))))
+(defglobal *backend-type-predicates-grouped* (compute-backend-type-predicates-grouped))
 (declaim (simple-vector *backend-type-predicates-grouped*))
+;;; In the cross-compiler DEFGLOBAL evaluates its initform when this file
+;;; is compiled, before the predicates defined above are registered, and
+;;; keeps that value when the fasl is loaded. Recompute the tables at load
+;;; time so that BACKEND-TYPE-PREDICATE finds FIXNUMP and friends; without
+;;; them TRANSFORM-TYPEP can expand (TYPEP X 'FIXNUM) into itself forever.
+#+sb-xc-host
+(setq *backend-type-predicates-grouped* (compute-backend-type-predicates-grouped))
 
 (defun backend-type-predicate (type)
   #-sb-xc-host
@@ -163,7 +172,8 @@
         (when (type= type (aref ctypes i))
           (return (aref (cdr choices) i)))))))
 
-(defglobal *backend-union-type-predicates*
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compute-backend-union-type-predicates ()
     (let ((unions (sort
                    (loop for (type . pred) in *backend-type-predicates*
                          when (union-type-p type)
@@ -174,8 +184,11 @@
       (coerce (loop for (key . value) in unions
                     collect key
                     collect value)
-              'vector)))
+              'vector))))
+(defglobal *backend-union-type-predicates* (compute-backend-union-type-predicates))
 (declaim (simple-vector *backend-union-type-predicates*))
+#+sb-xc-host
+(setq *backend-union-type-predicates* (compute-backend-union-type-predicates))
 
 (defun split-union-type-tests (types)
   (let ((predicates *backend-union-type-predicates*))

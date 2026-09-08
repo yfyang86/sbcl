@@ -166,17 +166,28 @@
    (etypecase func
      (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
      (integer (emit-uleb128 segment func)))))
+;;; The type index may be a :FUNCTION-TYPE fixup whose name is
+;;; (params results); the module writer resolves it.
+(defun emit-type-index (segment type-index)
+  (etypecase type-index
+    (fixup (note-fixup segment :leb128 type-index) (emit-fixed-sleb128-32 segment 0))
+    (integer (emit-uleb128 segment type-index))))
+
 (define-instruction call_indirect (segment type-index &optional (table 0))
   (:emitter
    (emit-byte segment #x11)
-   (emit-uleb128 segment type-index)
+   (emit-type-index segment type-index)
    (emit-uleb128 segment table)))
 (define-instruction return_call (segment func)
-  (:emitter (emit-byte segment #x12) (emit-uleb128 segment func)))
+  (:emitter
+   (emit-byte segment #x12)
+   (etypecase func
+     (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
+     (integer (emit-uleb128 segment func)))))
 (define-instruction return_call_indirect (segment type-index &optional (table 0))
   (:emitter
    (emit-byte segment #x13)
-   (emit-uleb128 segment type-index)
+   (emit-type-index segment type-index)
    (emit-uleb128 segment table)))
 
 ;;; try_table bt vec(catch): each catch clause is one of
@@ -381,7 +392,8 @@
 
 (defstruct (control-note (:constructor make-control-note (kind posn labels data))
                          (:copier nil))
-  ;; :jump :jump-if :jump-table :func-begin :func-end
+  ;; :jump :jump-if :jump-table :func-begin :func-end :call-label
+  ;; :tail-call-label :label-index :nlx-entry
   (kind nil :type symbol :read-only t)
   ;; byte position in the finalized segment of the note's placeholder byte
   (posn 0 :type index :read-only t)
@@ -426,6 +438,26 @@
 
 (define-instruction func-end (segment)
   (:emitter (note-control segment :func-end nil nil)))
+
+;;; direct call of the Wasm function that starts at LABEL (a local call
+;;; to another lambda of the component); leaves the callee's i32 result
+;;; on the stack
+(define-instruction call-label (segment label)
+  (:emitter (note-control segment :call-label label nil)))
+
+;;; tail call of the Wasm function that starts at LABEL
+(define-instruction tail-call-label (segment label)
+  (:emitter (note-control segment :tail-call-label label nil)))
+
+;;; pushes the i32 dispatcher index of LABEL within the current function
+;;; (the entry-pc of a catch or unwind block)
+(define-instruction label-index (segment label)
+  (:emitter (note-control segment :label-index label nil)))
+
+;;; marks LABEL as a non-local entry of the current function, which then
+;;; gets an exception handler (see func-asm.lisp)
+(define-instruction nlx-entry (segment label)
+  (:emitter (note-control segment :nlx-entry label nil)))
 
 ;;;; Fixups
 ;;;;

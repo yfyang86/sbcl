@@ -37,907 +37,660 @@
   (load-freg x :double)
   (inst f64.store (tn-byte-offset y)))
 
-;;; Complex floats are two consecutive float registers and two consecutive
-;;; stack entries of the component size.
+;;;; Float register moves.
+
+(macrolet ((frob (vop sc format)
+             `(progn
+                (define-vop (,vop)
+                  (:args (x :scs (,sc)
+                            :target y
+                            :load-if (not (location= x y))))
+                  (:results (y :scs (,sc)
+                               :load-if (not (location= x y))))
+                  (:note "float move")
+                  (:generator 0
+                    (unless (location= y x)
+                      (store-freg y ,format (load-freg x ,format)))))
+                (define-move-vop ,vop :move (,sc) (,sc)))))
+  (frob single-move single-reg :single)
+  (frob double-move double-reg :double))
+
+;;; Move from a float to a descriptor: allocate a boxed float.
+(define-vop (move-from-float)
+  (:args (x :to :save))
+  (:results (y))
+  (:note "float to pointer coercion")
+  (:variant-vars fmt size type data)
+  (:generator 13
+    (with-fixed-allocation (y type size)
+      (load-reg y)
+      (emit-store-float fmt (- (* data n-word-bytes) other-pointer-lowtag)
+        (load-freg x fmt)))))
+
+(macrolet ((frob (name sc &rest args)
+             `(progn
+                (define-vop (,name move-from-float)
+                  (:args (x :scs (,sc) :to :save))
+                  (:results (y :scs (descriptor-reg)))
+                  (:variant ,@args))
+                (define-move-vop ,name :move (,sc) (descriptor-reg)))))
+  (frob move-from-single single-reg
+        :single single-float-size single-float-widetag single-float-value-slot)
+  (frob move-from-double double-reg
+        :double double-float-size double-float-widetag double-float-value-slot))
+
+;;; Move from a descriptor to a float register.
+(macrolet ((frob (name sc fmt value)
+             `(progn
+                (define-vop (,name)
+                  (:args (x :scs (descriptor-reg)))
+                  (:results (y :scs (,sc)))
+                  (:note "pointer to float coercion")
+                  (:generator 2
+                    (store-freg y ,fmt
+                      (load-reg x)
+                      (emit-load-float ,fmt (- (* ,value n-word-bytes) other-pointer-lowtag)))))
+                (define-move-vop ,name :move (descriptor-reg) (,sc)))))
+  (frob move-to-single single-reg :single single-float-value-slot)
+  (frob move-to-double double-reg :double double-float-value-slot))
+
+;;; Move from a float register to a float argument passing location.
+(macrolet ((frob (name sc stack-sc format)
+             `(progn
+                (define-vop (,name)
+                  (:args (x :scs (,sc) :target y)
+                         (nfp :scs (any-reg)
+                              :load-if (not (sc-is y ,sc))))
+                  (:results (y))
+                  (:note "float arg move")
+                  (:generator 1
+                    (sc-case y
+                      (,sc
+                       (unless (location= x y)
+                         (store-freg y ,format (load-freg x ,format))))
+                      (,stack-sc
+                       (load-reg nfp)
+                       (emit-store-float ,format (tn-byte-offset y)
+                         (load-freg x ,format))))))
+                (define-move-vop ,name :move-arg
+                  (,sc descriptor-reg) (,sc)))))
+  (frob move-single-float-arg single-reg single-stack :single)
+  (frob move-double-float-arg double-reg double-stack :double))
+
+;;;; Complex float move functions
+;;;;
+;;;; Complex floats are two consecutive float registers and two
+;;;; consecutive stack entries of the component size.
+
 (macrolet ((define-complex-moves (format size stack-sc reg-sc load-name store-name cost)
-             (let ((fload (ecase format (:single 'f32.load) (:double 'f64.load)))
-                   (fstore (ecase format (:single 'f32.store) (:double 'f64.store))))
-               `(progn
-                  (define-move-fun (,load-name ,cost) (vop x y)
-                    ((,stack-sc) (,reg-sc))
-                    (let ((offset (tn-byte-offset x)))
-                      (inst global.get +thread-global+)
+             `(progn
+                (define-move-fun (,load-name ,cost) (vop x y)
+                  ((,stack-sc) (,reg-sc))
+                  (let ((offset (tn-byte-offset x)))
+                    (store-freg-slot (complex-reg-real-offset y) ,format
                       (load-reg (current-nfp-tn vop))
-                      (inst ,fload offset)
-                      (inst ,fstore (float-register-byte-offset (complex-reg-real-offset y)))
-                      (inst global.get +thread-global+)
+                      (emit-load-float ,format offset))
+                    (store-freg-slot (complex-reg-imag-offset y) ,format
                       (load-reg (current-nfp-tn vop))
-                      (inst ,fload (+ offset ,size))
-                      (inst ,fstore (float-register-byte-offset (complex-reg-imag-offset y)))))
-                  (define-move-fun (,store-name ,cost) (vop x y)
-                    ((,reg-sc) (,stack-sc))
-                    (let ((offset (tn-byte-offset y)))
-                      (load-reg (current-nfp-tn vop))
-                      (inst global.get +thread-global+)
-                      (inst ,fload (float-register-byte-offset (complex-reg-real-offset x)))
-                      (inst ,fstore offset)
-                      (load-reg (current-nfp-tn vop))
-                      (inst global.get +thread-global+)
-                      (inst ,fload (float-register-byte-offset (complex-reg-imag-offset x)))
-                      (inst ,fstore (+ offset ,size))))))))
+                      (emit-load-float ,format (+ offset ,size)))))
+                (define-move-fun (,store-name ,cost) (vop x y)
+                  ((,reg-sc) (,stack-sc))
+                  (let ((offset (tn-byte-offset y)))
+                    (load-reg (current-nfp-tn vop))
+                    (emit-store-float ,format offset
+                      (load-freg-slot (complex-reg-real-offset x) ,format))
+                    (load-reg (current-nfp-tn vop))
+                    (emit-store-float ,format (+ offset ,size)
+                      (load-freg-slot (complex-reg-imag-offset x) ,format)))))))
   (define-complex-moves :single 4 complex-single-stack complex-single-reg
     load-complex-single store-complex-single 2)
   (define-complex-moves :double 8 complex-double-stack complex-double-reg
     load-complex-double store-complex-double 2))
 
-;;; The arithmetic, comparison and conversion VOPs are written in Sprint 3.
-
-;;; FLOATING-POINT-MODES is a software word on this target (see parms.lisp):
-;;; there are no trap masks or rounding modes to set in the engine.
-(sb-xc:deftype float-modes () '(unsigned-byte 32))
-(defknown floating-point-modes () float-modes (flushable))
-(defknown ((setf floating-point-modes)) (float-modes)
-  float-modes)
-
-;;;; Skeletons: operand shapes taken from the riscv backend, generators to
-;;;; be written in Sprint 3. Generated by Sprints/Sprint2/gen-skeletons.lisp.
-
-(define-vop (single-move)
-  (:args (x :scs (single-reg) :load-if (not (location= x y))))
-  (:results (y :scs (single-reg) :load-if (not (location= x y))))
-  (:note "float move")
-  
-  (:generator 0 (vop-not-yet-implemented 'single-move x y)))
-;;; registrations that riscv generates with macros
-(define-move-vop single-move :move (single-reg) (single-reg))
-
-
-(define-vop (double-move)
-  (:args (x :scs (double-reg) :load-if (not (location= x y))))
-  (:results (y :scs (double-reg) :load-if (not (location= x y))))
-  (:note "float move")
-  
-  (:generator 0 (vop-not-yet-implemented 'double-move x y)))
-(define-move-vop double-move :move (double-reg) (double-reg))
-
-
-(define-vop (move-from-float)
-  (:args (x))
-  (:results (y))
-  (:variant-vars fmt size type data)
-  (:variant nil nil nil nil)
-  (:note "float to pointer coercion")
-  (:generator 13 (vop-not-yet-implemented 'move-from-float x y fmt size type data)))
-
-(define-vop (move-from-single)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (descriptor-reg)))
-  (:variant-vars fmt size type data)
-  (:variant :single single-float-size single-float-widetag single-float-value-slot)
-  (:note "float to pointer coercion")
-  (:generator 13 (vop-not-yet-implemented 'move-from-single x y fmt size type data)))
-;;;; Move VOP registrations (coercions between storage classes), as on riscv.
-
-(define-move-vop move-from-single :move
-  (single-reg) (descriptor-reg))
-
-
-(define-vop (move-from-double)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (descriptor-reg)))
-  (:variant-vars fmt size type data)
-  (:variant :double double-float-size double-float-widetag double-float-value-slot)
-  (:note "float to pointer coercion")
-  (:generator 13 (vop-not-yet-implemented 'move-from-double x y fmt size type data)))
-(define-move-vop move-from-double :move
-  (double-reg) (descriptor-reg))
-
-
-(define-vop (move-to-single)
-  (:args (x :scs (descriptor-reg)))
-  (:results (y :scs (single-reg)))
-  (:note "pointer to float coercion")
-  (:generator 2 (vop-not-yet-implemented 'move-to-single x y)))
-(define-move-vop move-to-single :move (descriptor-reg) (single-reg))
-
-
-(define-vop (move-to-double)
-  (:args (x :scs (descriptor-reg)))
-  (:results (y :scs (double-reg)))
-  (:note "pointer to float coercion")
-  (:generator 2 (vop-not-yet-implemented 'move-to-double x y)))
-(define-move-vop move-to-double :move (descriptor-reg) (double-reg))
-
-
-(define-vop (move-single-float-arg)
-  (:args (x :scs (single-reg))
-   (nfp :scs (any-reg) :load-if (not (sc-is y single-reg))))
-  (:results (y))
-  (:note "float arg move")
-  (:generator 1 (vop-not-yet-implemented 'move-single-float-arg x nfp y)))
-
-(define-vop (move-double-float-arg)
-  (:args (x :scs (double-reg))
-   (nfp :scs (any-reg) :load-if (not (sc-is y double-reg))))
-  (:results (y))
-  (:note "float arg move")
-  (:generator 1 (vop-not-yet-implemented 'move-double-float-arg x nfp y)))
+;;; Copy complex float Y from X.
+(defun move-complex (format y x)
+  (unless (location= x y)
+    (store-freg-slot (complex-reg-real-offset y) format
+      (load-freg-slot (complex-reg-real-offset x) format))
+    (store-freg-slot (complex-reg-imag-offset y) format
+      (load-freg-slot (complex-reg-imag-offset x) format))))
 
 (define-vop (complex-single-move)
-  (:args (x :scs (complex-single-reg) :load-if (not (location= x y))))
+  (:args (x :scs (complex-single-reg) :target y
+            :load-if (not (location= x y))))
   (:results (y :scs (complex-single-reg) :load-if (not (location= x y))))
   (:note "complex single float move")
-  
-  (:generator 0 (vop-not-yet-implemented 'complex-single-move x y)))
+  (:generator 0
+    (move-complex :single y x)))
 (define-move-vop complex-single-move :move
   (complex-single-reg) (complex-single-reg))
 
-
 (define-vop (complex-double-move)
-  (:args (x :scs (complex-double-reg) :load-if (not (location= x y))))
+  (:args (x :scs (complex-double-reg)
+            :target y :load-if (not (location= x y))))
   (:results (y :scs (complex-double-reg) :load-if (not (location= x y))))
   (:note "complex double float move")
-  
-  (:generator 0 (vop-not-yet-implemented 'complex-double-move x y)))
+  (:generator 0
+    (move-complex :double y x)))
 (define-move-vop complex-double-move :move
   (complex-double-reg) (complex-double-reg))
 
-
+;;; Move from a complex float to a descriptor reg. Allocate a new
+;;; complex float object in the process.
 (define-vop (move-from-complex-float)
   (:args (x))
   (:results (y :scs (descriptor-reg)))
   (:variant-vars format real-slot imag-slot widetag size)
-  (:variant nil nil nil nil nil)
-  (:generator 13 (vop-not-yet-implemented 'move-from-complex-float x y format real-slot imag-slot widetag size)))
+  (:generator 13
+    (with-fixed-allocation (y widetag size)
+      (load-reg y)
+      (emit-store-float format (- (* real-slot n-word-bytes) other-pointer-lowtag)
+        (load-freg-slot (complex-reg-real-offset x) format))
+      (load-reg y)
+      (emit-store-float format (- (* imag-slot n-word-bytes) other-pointer-lowtag)
+        (load-freg-slot (complex-reg-imag-offset x) format)))))
 
-(define-vop (move-from-complex-single)
-  (:args (x :scs (complex-single-reg)))
-  (:results (y :scs (descriptor-reg)))
-  (:variant-vars format real-slot imag-slot widetag size)
-  (:variant :single complex-single-float-real-slot complex-single-float-imag-slot
-   complex-single-float-widetag complex-single-float-size)
+(define-vop (move-from-complex-single move-from-complex-float)
+  (:args (x :scs (complex-single-reg) :to :save))
   (:note "complex single float to pointer coercion")
-  (:generator 13 (vop-not-yet-implemented 'move-from-complex-single x y format real-slot imag-slot widetag size)))
+  (:variant :single complex-single-float-real-slot complex-single-float-imag-slot
+            complex-single-float-widetag complex-single-float-size))
 (define-move-vop move-from-complex-single :move
   (complex-single-reg) (descriptor-reg))
 
-
-(define-vop (move-from-complex-double)
-  (:args (x :scs (complex-double-reg)))
-  (:results (y :scs (descriptor-reg)))
-  (:variant-vars format real-slot imag-slot widetag size)
-  (:variant :double complex-double-float-real-slot complex-double-float-imag-slot
-   complex-double-float-widetag complex-double-float-size)
+(define-vop (move-from-complex-double move-from-complex-float)
+  (:args (x :scs (complex-double-reg) :to :save))
   (:note "complex double float to pointer coercion")
-  (:generator 13 (vop-not-yet-implemented 'move-from-complex-double x y format real-slot imag-slot widetag size)))
+  (:variant :double complex-double-float-real-slot complex-double-float-imag-slot
+            complex-double-float-widetag complex-double-float-size))
 (define-move-vop move-from-complex-double :move
   (complex-double-reg) (descriptor-reg))
 
-
+;;; Move from a descriptor to a complex float register.
 (define-vop (move-to-complex-float)
   (:args (x :scs (descriptor-reg)))
   (:results (y))
-  (:variant-vars format real-slot imag-slot)
-  (:variant nil nil nil)
   (:note "pointer to complex float coercion")
-  (:generator 2 (vop-not-yet-implemented 'move-to-complex-float x y format real-slot imag-slot)))
+  (:variant-vars format real-slot imag-slot)
+  (:generator 2
+    (store-freg-slot (complex-reg-real-offset y) format
+      (load-reg x)
+      (emit-load-float format (- (* real-slot n-word-bytes) other-pointer-lowtag)))
+    (store-freg-slot (complex-reg-imag-offset y) format
+      (load-reg x)
+      (emit-load-float format (- (* imag-slot n-word-bytes) other-pointer-lowtag)))))
 
-(define-vop (move-to-complex-single)
-  (:args (x :scs (descriptor-reg)))
+(define-vop (move-to-complex-single move-to-complex-float)
   (:results (y :scs (complex-single-reg)))
-  (:variant-vars format real-slot imag-slot)
-  (:variant :single complex-single-float-real-slot complex-single-float-imag-slot)
-  (:note "pointer to complex float coercion")
-  (:generator 2 (vop-not-yet-implemented 'move-to-complex-single x y format real-slot imag-slot)))
+  (:variant :single complex-single-float-real-slot complex-single-float-imag-slot))
 (define-move-vop move-to-complex-single :move
   (descriptor-reg) (complex-single-reg))
 
-
-(define-vop (move-to-complex-double)
-  (:args (x :scs (descriptor-reg)))
+(define-vop (move-to-complex-double move-to-complex-float)
   (:results (y :scs (complex-double-reg)))
-  (:variant-vars format real-slot imag-slot)
-  (:variant :double complex-double-float-real-slot complex-double-float-imag-slot)
-  (:note "pointer to complex float coercion")
-  (:generator 2 (vop-not-yet-implemented 'move-to-complex-double x y format real-slot imag-slot)))
+  (:variant :double complex-double-float-real-slot complex-double-float-imag-slot))
 (define-move-vop move-to-complex-double :move
   (descriptor-reg) (complex-double-reg))
 
+;;; Complex float move-arg VOPs.
+(macrolet ((frob (name format size sc stack-sc)
+             `(progn
+                (define-vop (,name)
+                  (:args (x :scs (,sc) :target y)
+                         (nfp :scs (any-reg) :load-if (not (sc-is y ,sc))))
+                  (:results (y))
+                  (:note "complex float arg move")
+                  (:generator 2
+                    (sc-case y
+                      (,sc
+                       (move-complex ,format y x))
+                      (,stack-sc
+                       (let ((offset (tn-byte-offset y)))
+                         (load-reg nfp)
+                         (emit-store-float ,format offset
+                           (load-freg-slot (complex-reg-real-offset x) ,format))
+                         (load-reg nfp)
+                         (emit-store-float ,format (+ offset ,size)
+                           (load-freg-slot (complex-reg-imag-offset x) ,format)))))))
+                (define-move-vop ,name :move-arg
+                  (,sc descriptor-reg) (,sc)))))
+  (frob move-complex-single-float-arg :single 4 complex-single-reg complex-single-stack)
+  (frob move-complex-double-float-arg :double 8 complex-double-reg complex-double-stack))
 
-(define-vop (move-complex-single-float-arg)
-  (:args (x :scs (complex-single-reg))
-   (nfp :scs (any-reg) :load-if (not (sc-is y complex-single-reg))))
-  (:results (y))
-  (:note "complex single-float arg move")
-  (:generator 1 (vop-not-yet-implemented 'move-complex-single-float-arg x nfp y)))
+(define-move-vop move-arg :move-arg
+  (single-reg double-reg complex-single-reg complex-double-reg)
+  (descriptor-reg))
 
-(define-vop (move-complex-double-float-arg)
-  (:args (x :scs (complex-double-reg))
-   (nfp :scs (any-reg) :load-if (not (sc-is y complex-double-reg))))
-  (:results (y))
-  (:note "complex double-float arg move")
-  (:generator 2 (vop-not-yet-implemented 'move-complex-double-float-arg x nfp y)))
+;;;; Arithmetic VOPs
 
 (define-vop (float-op)
   (:args (x) (y))
   (:results (r))
   (:policy :fast-safe)
-  (:save-p :compute-only)
   (:note "inline float arithmetic")
   (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'float-op x y r)))
+  (:save-p :compute-only))
 
-(define-vop (single-float-op)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or single-float))
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'single-float-op x y r)))
+(macrolet ((frob (name sc ptype)
+             `(define-vop (,name float-op)
+                (:args (x :scs (,sc))
+                       (y :scs (,sc)))
+                (:results (r :scs (,sc)))
+                (:arg-types ,ptype ,ptype)
+                (:result-types ,ptype))))
+  (frob single-float-op single-reg single-float)
+  (frob double-float-op double-reg double-float))
 
-(define-vop (double-float-op)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or double-float))
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'double-float-op x y r)))
+(macrolet ((frob (op sinst dinst sname scost dname dcost)
+             `(progn
+                (define-vop (,sname single-float-op)
+                  (:translate ,op)
+                  (:generator ,scost
+                    (store-freg r :single
+                      (load-freg x :single)
+                      (load-freg y :single)
+                      (inst ,sinst))))
+                (define-vop (,dname double-float-op)
+                  (:translate ,op)
+                  (:generator ,dcost
+                    (store-freg r :double
+                      (load-freg x :double)
+                      (load-freg y :double)
+                      (inst ,dinst)))))))
+  (frob + f32.add f64.add +/single-float 2 +/double-float 2)
+  (frob - f32.sub f64.sub -/single-float 2 -/double-float 2)
+  (frob * f32.mul f64.mul */single-float 4 */double-float 4)
+  (frob / f32.div f64.div //single-float 12 //double-float 12))
 
-(define-vop (+/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or single-float))
-  (:translate +)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '+/single-float x y r)))
+(macrolet ((frob (name inst fmt translate sc type)
+             `(define-vop (,name)
+                (:args (x :scs (,sc)))
+                (:results (y :scs (,sc)))
+                (:translate ,translate)
+                (:policy :fast-safe)
+                (:arg-types ,type)
+                (:result-types ,type)
+                (:note "inline float arithmetic")
+                (:vop-var vop)
+                (:save-p :compute-only)
+                (:generator 1
+                  (note-this-location vop :internal-error)
+                  (store-freg y ,fmt
+                    (load-freg x ,fmt)
+                    (inst ,inst))))))
+  (frob abs/single-float f32.abs :single abs single-reg single-float)
+  (frob abs/double-float f64.abs :double abs double-reg double-float)
+  (frob %negate/single-float f32.neg :single %negate single-reg single-float)
+  (frob %negate/double-float f64.neg :double %negate double-reg double-float))
 
-(define-vop (+/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or double-float))
-  (:translate +)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '+/double-float x y r)))
-
-(define-vop (-/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or single-float))
-  (:translate -)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '-/single-float x y r)))
-
-(define-vop (-/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or double-float))
-  (:translate -)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '-/double-float x y r)))
-
-(define-vop (*/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or single-float))
-  (:translate *)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 4 (vop-not-yet-implemented '*/single-float x y r)))
-
-(define-vop (*/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or double-float))
-  (:translate *)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 4 (vop-not-yet-implemented '*/double-float x y r)))
-
-(define-vop (//single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or single-float))
-  (:translate /)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 12 (vop-not-yet-implemented '//single-float x y r)))
-
-(define-vop (//double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or double-float))
-  (:translate /)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 12 (vop-not-yet-implemented '//double-float x y r)))
-
-(define-vop (abs/single-float)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (single-reg)))
-  (:arg-types (:or single-float))
-  (:result-types (:or single-float))
-  (:translate abs)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 1 (vop-not-yet-implemented 'abs/single-float x y)))
-
-(define-vop (abs/double-float)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (double-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or double-float))
-  (:translate abs)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 1 (vop-not-yet-implemented 'abs/double-float x y)))
-
-(define-vop (%negate/single-float)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (single-reg)))
-  (:arg-types (:or single-float))
-  (:result-types (:or single-float))
-  (:translate %negate)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 1 (vop-not-yet-implemented '%negate/single-float x y)))
-
-(define-vop (%negate/double-float)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (double-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or double-float))
-  (:translate %negate)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float arithmetic")
-  (:vop-var vop)
-  (:generator 1 (vop-not-yet-implemented '%negate/double-float x y)))
+;;;; Comparison
 
 (define-vop (float-compare)
   (:args (x) (y))
-  (:result-types)
-  (:info target not-p)
   (:conditional)
+  (:info target not-p)
   (:policy :fast-safe)
-  (:save-p :compute-only)
   (:note "inline float comparison")
   (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'float-compare x y target not-p)))
+  (:save-p :compute-only))
 
-(define-vop (single-float-compare)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'single-float-compare x y target not-p)))
+(macrolet ((frob (name sc ptype)
+             `(define-vop (,name float-compare)
+                (:args (x :scs (,sc))
+                       (y :scs (,sc)))
+                (:arg-types ,ptype ,ptype))))
+  (frob single-float-compare single-reg single-float)
+  (frob double-float-compare double-reg double-float))
 
-(define-vop (double-float-compare)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 0 (vop-not-yet-implemented 'double-float-compare x y target not-p)))
+(macrolet ((frob (translate sinst dinst sname dname)
+             `(progn
+                (define-vop (,sname single-float-compare)
+                  (:translate ,translate)
+                  (:generator 3
+                    (note-this-location vop :internal-error)
+                    (load-freg x :single)
+                    (load-freg y :single)
+                    (inst ,sinst)
+                    (emit-conditional-branch target not-p)))
+                (define-vop (,dname double-float-compare)
+                  (:translate ,translate)
+                  (:generator 3
+                    (note-this-location vop :internal-error)
+                    (load-freg x :double)
+                    (load-freg y :double)
+                    (inst ,dinst)
+                    (emit-conditional-branch target not-p))))))
+  (frob < f32.lt f64.lt </single-float </double-float)
+  (frob quiet< f32.lt f64.lt quiet</single-float quiet</double-float)
+  (frob <= f32.le f64.le <=/single-float <=/double-float)
+  (frob > f32.gt f64.gt >/single-float >/double-float)
+  (frob >= f32.ge f64.ge >=/single-float >=/double-float)
+  (frob = f32.eq f64.eq =/single-float =/double-float)
+  (frob quiet= f32.eq f64.eq quiet=/single-float quiet=/double-float))
 
-(define-vop (</single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate <)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '</single-float x y target not-p)))
+;;;; Conversion:
 
-(define-vop (</double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate <)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '</double-float x y target not-p)))
+(macrolet ((frob (name translate inst from-sc from-type from-format
+                       to-sc to-type to-format)
+             `(define-vop (,name)
+                (:args (x :scs (,from-sc)))
+                (:results (y :scs (,to-sc)))
+                (:arg-types ,from-type)
+                (:result-types ,to-type)
+                (:policy :fast-safe)
+                (:note "inline float coercion")
+                (:translate ,translate)
+                (:vop-var vop)
+                (:save-p :compute-only)
+                (:generator 2
+                  (note-this-location vop :internal-error)
+                  (store-freg y ,to-format
+                    ,(if from-format
+                         `(load-freg x ,from-format)
+                         `(load-reg x))
+                    (inst ,inst))))))
+  (frob %single-float/signed %single-float f32.convert_i32_s
+    signed-reg signed-num nil
+    single-reg single-float :single)
+  (frob %single-float/unsigned %single-float f32.convert_i32_u
+    unsigned-reg unsigned-num nil
+    single-reg single-float :single)
+  (frob %double-float/signed %double-float f64.convert_i32_s
+    signed-reg signed-num nil
+    double-reg double-float :double)
+  (frob %double-float/unsigned %double-float f64.convert_i32_u
+    unsigned-reg unsigned-num nil
+    double-reg double-float :double)
+  (frob %single-float/double-float %single-float f32.demote_f64
+    double-reg double-float :double
+    single-reg single-float :single)
+  (frob %double-float/single-float %double-float f64.promote_f32
+    single-reg single-float :single
+    double-reg double-float :double))
 
-(define-vop (quiet</single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate quiet<)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'quiet</single-float x y target not-p)))
-
-(define-vop (quiet</double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate quiet<)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'quiet</double-float x y target not-p)))
-
-(define-vop (<=/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate <=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '<=/single-float x y target not-p)))
-
-(define-vop (<=/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate <=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '<=/double-float x y target not-p)))
-
-(define-vop (>/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate >)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '>/single-float x y target not-p)))
-
-(define-vop (>/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate >)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '>/double-float x y target not-p)))
-
-(define-vop (>=/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate >=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '>=/single-float x y target not-p)))
-
-(define-vop (>=/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate >=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '>=/double-float x y target not-p)))
-
-(define-vop (=/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate =)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '=/single-float x y target not-p)))
-
-(define-vop (=/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate =)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented '=/double-float x y target not-p)))
-
-(define-vop (quiet=/single-float)
-  (:args (x :scs (single-reg)) (y :scs (single-reg)))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate quiet=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'quiet=/single-float x y target not-p)))
-
-(define-vop (quiet=/double-float)
-  (:args (x :scs (double-reg)) (y :scs (double-reg)))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types)
-  (:info target not-p)
-  (:conditional)
-  (:translate quiet=)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float comparison")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'quiet=/double-float x y target not-p)))
-
-(define-vop (%single-float/signed)
-  (:args (x :scs (signed-reg)))
-  (:results (y :scs (single-reg)))
-  (:arg-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:result-types (:or single-float))
-  (:translate %single-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%single-float/signed x y)))
-
-(define-vop (%single-float/unsigned)
-  (:args (x :scs (unsigned-reg)))
-  (:results (y :scs (single-reg)))
-  (:arg-types (:or unsigned-byte-32 unsigned-byte-31 positive-fixnum))
-  (:result-types (:or single-float))
-  (:translate %single-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%single-float/unsigned x y)))
-
-(define-vop (%double-float/signed)
-  (:args (x :scs (signed-reg)))
-  (:results (y :scs (double-reg)))
-  (:arg-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:result-types (:or double-float))
-  (:translate %double-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%double-float/signed x y)))
-
-(define-vop (%double-float/unsigned)
-  (:args (x :scs (unsigned-reg)))
-  (:results (y :scs (double-reg)))
-  (:arg-types (:or unsigned-byte-32 unsigned-byte-31 positive-fixnum))
-  (:result-types (:or double-float))
-  (:translate %double-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%double-float/unsigned x y)))
-
-(define-vop (%single-float/double-float)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (single-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or single-float))
-  (:translate %single-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%single-float/double-float x y)))
-
-(define-vop (%double-float/single-float)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (double-reg)))
-  (:arg-types (:or single-float))
-  (:result-types (:or double-float))
-  (:translate %double-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float coercion")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%double-float/single-float x y)))
-
-(define-vop (%unary-round/single-float)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (signed-reg)))
-  (:arg-types (:or single-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:translate %unary-round)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float round/truncate")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%unary-round/single-float x y)))
-
-(define-vop (%unary-round/double-float)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (signed-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:translate %unary-round)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float round/truncate")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%unary-round/double-float x y)))
-
-(define-vop (%unary-truncate/single-float)
-  (:args (x :scs (single-reg)))
-  (:results (y :scs (signed-reg)))
-  (:arg-types (:or single-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:translate %unary-truncate/single-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float round/truncate")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%unary-truncate/single-float x y)))
-
-(define-vop (%unary-truncate/double-float)
-  (:args (x :scs (double-reg)))
-  (:results (y :scs (signed-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:translate %unary-truncate/double-float)
-  (:policy :fast-safe)
-  (:save-p :compute-only)
-  (:note "inline float round/truncate")
-  (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented '%unary-truncate/double-float x y)))
+;;; Truncation and rounding to a word. The saturating conversions do
+;;; not trap; the result type guarantees the value fits.
+(macrolet ((frob (name trans from-sc from-type from-format round)
+             `(define-vop (,name)
+                (:args (x :scs (,from-sc)))
+                (:results (y :scs (signed-reg)))
+                (:arg-types ,from-type)
+                (:result-types signed-num)
+                (:translate ,trans)
+                (:policy :fast-safe)
+                (:note "inline float round/truncate")
+                (:vop-var vop)
+                (:save-p :compute-only)
+                (:generator 2
+                  (note-this-location vop :internal-error)
+                  (store-reg y
+                    (load-freg x ,from-format)
+                    ,@(when round
+                        `((inst ,(ecase from-format (:single 'f32.nearest) (:double 'f64.nearest)))))
+                    (inst ,(ecase from-format
+                             (:single 'i32.trunc_sat_f32_s)
+                             (:double 'i32.trunc_sat_f64_s))))))))
+  (frob %unary-round/single-float %unary-round single-reg single-float :single t)
+  (frob %unary-round/double-float %unary-round double-reg double-float :double t)
+  (frob %unary-truncate/single-float %unary-truncate/single-float single-reg single-float :single nil)
+  (frob %unary-truncate/double-float %unary-truncate/double-float double-reg double-float :double nil))
 
 (define-vop (make-single-float)
-  (:args (bits :scs (signed-reg)))
-  (:results (res :scs (single-reg)))
-  (:arg-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
-  (:result-types (:or single-float))
-  (:translate make-single-float)
-  (:policy :fast-safe)
-  (:generator 1 (vop-not-yet-implemented 'make-single-float bits res)))
+   (:args (bits :scs (signed-reg)))
+   (:results (res :scs (single-reg)))
+   (:arg-types signed-num)
+   (:result-types single-float)
+   (:translate make-single-float)
+   (:policy :fast-safe)
+   (:generator 1
+     (store-freg res :single
+       (load-reg bits)
+       (inst f32.reinterpret_i32))))
 
 (define-vop (make-double-float)
-  (:args (hi-bits :scs (signed-reg)) (lo-bits :scs (unsigned-reg)))
+  (:args (hi-bits :scs (signed-reg))
+         (lo-bits :scs (unsigned-reg)))
   (:results (res :scs (double-reg)))
-  (:arg-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum)
-   (:or unsigned-byte-32 unsigned-byte-31 positive-fixnum))
-  (:result-types (:or double-float))
+  (:arg-types signed-num unsigned-num)
+  (:result-types double-float)
   (:translate make-double-float)
   (:policy :fast-safe)
-  (:generator 2 (vop-not-yet-implemented 'make-double-float hi-bits lo-bits res)))
+  (:generator 2
+    (store-freg res :double
+      (load-reg hi-bits)
+      (inst i64.extend_i32_u)
+      (inst i64.const 32)
+      (inst i64.shl)
+      (load-reg lo-bits)
+      (inst i64.extend_i32_u)
+      (inst i64.or)
+      (inst f64.reinterpret_i64))))
 
 (define-vop (single-float-bits)
-  (:args
-   (float :scs (single-reg descriptor-reg) :load-if (not (sc-is float single-stack))))
-  (:results (bits :scs (signed-reg) :load-if (sc-is float descriptor-reg single-stack)))
-  (:arg-types (:or single-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
+  (:args (float :scs (single-reg descriptor-reg)
+                :load-if (not (sc-is float single-stack))))
+  (:results (bits :scs (signed-reg)
+                  :load-if (sc-is float descriptor-reg single-stack)))
+  (:arg-types single-float)
+  (:result-types signed-num)
   (:translate single-float-bits)
   (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 1 (vop-not-yet-implemented 'single-float-bits float bits)))
+  (:generator 1
+    (store-reg bits
+      (sc-case float
+        (single-reg
+         (load-freg float :single)
+         (inst i32.reinterpret_f32))
+        (single-stack
+         (load-reg (current-nfp-tn vop))
+         (inst i32.load (tn-byte-offset float)))
+        (descriptor-reg
+         (load-reg float)
+         (emit-load-word (- (* single-float-value-slot n-word-bytes) other-pointer-lowtag)))))))
 
 (define-vop (double-float-high-bits)
-  (:args (float :scs (double-reg descriptor-reg)))
+  (:args (float :scs (double-reg descriptor-reg)
+                :load-if (not (sc-is float double-stack))))
   (:results (hi-bits :scs (signed-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or signed-byte-32 fixnum unsigned-byte-31 positive-fixnum))
+  (:arg-types double-float)
+  (:result-types signed-num)
   (:translate double-float-high-bits)
-  (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented 'double-float-high-bits float hi-bits)))
+  (:policy :fast-safe)
+  (:generator 2
+    (store-reg hi-bits
+      (sc-case float
+        (double-reg
+         (load-freg float :double)
+         (inst i64.reinterpret_f64)
+         (inst i64.const 32)
+         (inst i64.shr_u)
+         (inst i32.wrap_i64))
+        (double-stack
+         (load-reg (current-nfp-tn vop))
+         (inst i32.load (+ (tn-byte-offset float) 4)))
+        (descriptor-reg
+         (load-reg float)
+         (emit-load-word (- (+ (* double-float-value-slot n-word-bytes) 4)
+                            other-pointer-lowtag)))))))
 
 (define-vop (double-float-low-bits)
-  (:args
-   (float :scs (double-reg descriptor-reg) :load-if (not (sc-is float double-stack))))
+  (:args (float :scs (double-reg descriptor-reg)
+                :load-if (not (sc-is float double-stack))))
   (:results (lo-bits :scs (unsigned-reg)))
-  (:arg-types (:or double-float))
-  (:result-types (:or unsigned-byte-32 unsigned-byte-31 positive-fixnum))
+  (:arg-types double-float)
+  (:result-types unsigned-num)
   (:translate double-float-low-bits)
   (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 2 (vop-not-yet-implemented 'double-float-low-bits float lo-bits)))
+  (:generator 2
+    (store-reg lo-bits
+      (sc-case float
+        (double-reg
+         (load-freg float :double)
+         (inst i64.reinterpret_f64)
+         (inst i32.wrap_i64))
+        (double-stack
+         (load-reg (current-nfp-tn vop))
+         (inst i32.load (tn-byte-offset float)))
+        (descriptor-reg
+         (load-reg float)
+         (emit-load-word (- (* double-float-value-slot n-word-bytes)
+                            other-pointer-lowtag)))))))
 
+;;;; Float mode hackery:
+;;;;
+;;;; Wasm has no rounding-mode or trap-enable state: the modes word is a
+;;;; software value kept in the thread area (doc/wasm-port/02-design.md,
+;;;; 2.1), read and written here but not acted on by the engine.
 
+(sb-xc:deftype float-modes () '(unsigned-byte 32))
+(defknown floating-point-modes () float-modes (flushable))
+(defknown ((setf floating-point-modes)) (float-modes)
+  float-modes)
+
+(define-vop (floating-point-modes)
+  (:results (res :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:translate floating-point-modes)
+  (:policy :fast-safe)
+  (:generator 3
+    (store-reg res
+      (inst global.get +thread-global+)
+      (inst i32.load +thread-float-modes-offset+))))
+
+(define-vop (set-floating-point-modes)
+  (:args (new :scs (unsigned-reg) :target res))
+  (:results (res :scs (unsigned-reg)))
+  (:arg-types unsigned-num)
+  (:result-types unsigned-num)
+  (:translate (setf floating-point-modes))
+  (:policy :fast-safe)
+  (:generator 3
+    (inst global.get +thread-global+)
+    (load-reg new)
+    (inst i32.store +thread-float-modes-offset+)
+    (move res new)))
+
+;;;; Complex float VOPs
 
 (define-vop (make-complex-single-float)
-  (:args (real :scs (single-reg) :load-if (not (location= real r)))
-   (imag :scs (single-reg)))
-  (:results (r :scs (complex-single-reg) :load-if (not (sc-is r complex-single-stack))))
-  (:arg-types (:or single-float) (:or single-float))
-  (:result-types (:or complex-single-float))
   (:translate complex)
-  (:policy :fast-safe)
+  (:args (real :scs (single-reg) :target r
+               :load-if (not (location= real r)))
+         (imag :scs (single-reg) :to :save))
+  (:arg-types single-float single-float)
+  (:results (r :scs (complex-single-reg) :from (:argument 0)
+               :load-if (not (sc-is r complex-single-stack))))
+  (:result-types complex-single-float)
   (:note "inline complex single-float creation")
+  (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 5 (vop-not-yet-implemented 'make-complex-single-float real imag r)))
+  (:generator 5
+    (sc-case r
+      (complex-single-reg
+       (unless (= (tn-offset real) (complex-reg-real-offset r))
+         (store-freg-slot (complex-reg-real-offset r) :single (load-freg real :single)))
+       (unless (= (tn-offset imag) (complex-reg-imag-offset r))
+         (store-freg-slot (complex-reg-imag-offset r) :single (load-freg imag :single))))
+      (complex-single-stack
+       (let ((nfp (current-nfp-tn vop))
+             (offset (tn-byte-offset r)))
+         (load-reg nfp)
+         (emit-store-float :single offset (load-freg real :single))
+         (load-reg nfp)
+         (emit-store-float :single (+ offset 4) (load-freg imag :single)))))))
 
 (define-vop (make-complex-double-float)
-  (:args (real :scs (double-reg) :load-if (not (location= real r)))
-   (imag :scs (double-reg)))
-  (:results (r :scs (complex-double-reg) :load-if (not (sc-is r complex-double-stack))))
-  (:arg-types (:or double-float) (:or double-float))
-  (:result-types (:or complex-double-float))
   (:translate complex)
-  (:policy :fast-safe)
+  (:args (real :scs (double-reg) :target r
+               :load-if (not (location= real r)))
+         (imag :scs (double-reg) :to :save))
+  (:arg-types double-float double-float)
+  (:results (r :scs (complex-double-reg) :from (:argument 0)
+               :load-if (not (sc-is r complex-double-stack))))
+  (:result-types complex-double-float)
   (:note "inline complex double-float creation")
+  (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 5 (vop-not-yet-implemented 'make-complex-double-float real imag r)))
+  (:generator 5
+    (sc-case r
+      (complex-double-reg
+       (unless (= (tn-offset real) (complex-reg-real-offset r))
+         (store-freg-slot (complex-reg-real-offset r) :double (load-freg real :double)))
+       (unless (= (tn-offset imag) (complex-reg-imag-offset r))
+         (store-freg-slot (complex-reg-imag-offset r) :double (load-freg imag :double))))
+      (complex-double-stack
+       (let ((nfp (current-nfp-tn vop))
+             (offset (tn-byte-offset r)))
+         (load-reg nfp)
+         (emit-store-float :double offset (load-freg real :double))
+         (load-reg nfp)
+         (emit-store-float :double (+ offset 8) (load-freg imag :double)))))))
 
 (define-vop (complex-single-float-value)
-  (:args
-   (x :scs (complex-single-reg) :load-if (not (sc-is x complex-single-stack))))
+  (:args (x :scs (complex-single-reg) :target r
+            :load-if (not (sc-is x complex-single-stack))))
+  (:arg-types complex-single-float)
   (:results (r :scs (single-reg)))
-  (:arg-types (:or complex-single-float))
-  (:result-types (:or single-float))
-  (:policy :fast-safe)
+  (:result-types single-float)
   (:variant-vars slot)
-  (:variant nil)
+  (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'complex-single-float-value x r slot)))
+  (:generator 3
+    (sc-case x
+      (complex-single-reg
+       (let ((source (ecase slot
+                       (:real (complex-reg-real-offset x))
+                       (:imag (complex-reg-imag-offset x)))))
+         (unless (= source (tn-offset r))
+           (store-freg r :single (load-freg-slot source :single)))))
+      (complex-single-stack
+       (store-freg r :single
+         (load-reg (current-nfp-tn vop))
+         (inst f32.load (+ (ecase slot (:real 0) (:imag 4))
+                           (tn-byte-offset x))))))))
 
-(define-vop (realpart/complex-single-float)
-  (:args
-   (x :scs (complex-single-reg) :load-if (not (sc-is x complex-single-stack))))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or complex-single-float))
-  (:result-types (:or single-float))
+(define-vop (realpart/complex-single-float complex-single-float-value)
   (:translate realpart)
-  (:policy :fast-safe)
-  (:variant-vars slot)
-  (:variant :real)
   (:note "complex single float realpart")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'realpart/complex-single-float x r slot)))
+  (:variant :real))
 
-(define-vop (imagpart/complex-single-float)
-  (:args
-   (x :scs (complex-single-reg) :load-if (not (sc-is x complex-single-stack))))
-  (:results (r :scs (single-reg)))
-  (:arg-types (:or complex-single-float))
-  (:result-types (:or single-float))
+(define-vop (imagpart/complex-single-float complex-single-float-value)
   (:translate imagpart)
-  (:policy :fast-safe)
-  (:variant-vars slot)
-  (:variant :imag)
   (:note "complex single float imagpart")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'imagpart/complex-single-float x r slot)))
+  (:variant :imag))
 
 (define-vop (complex-double-float-value)
-  (:args
-   (x :scs (complex-double-reg) :load-if (not (sc-is x complex-double-stack))))
+  (:args (x :scs (complex-double-reg) :target r
+            :load-if (not (sc-is x complex-double-stack))))
+  (:arg-types complex-double-float)
   (:results (r :scs (double-reg)))
-  (:arg-types (:or complex-double-float))
-  (:result-types (:or double-float))
-  (:policy :fast-safe)
+  (:result-types double-float)
   (:variant-vars slot)
-  (:variant nil)
+  (:policy :fast-safe)
   (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'complex-double-float-value x r slot)))
+  (:generator 3
+    (sc-case x
+      (complex-double-reg
+       (let ((source (ecase slot
+                       (:real (complex-reg-real-offset x))
+                       (:imag (complex-reg-imag-offset x)))))
+         (unless (= source (tn-offset r))
+           (store-freg r :double (load-freg-slot source :double)))))
+      (complex-double-stack
+       (store-freg r :double
+         (load-reg (current-nfp-tn vop))
+         (inst f64.load (+ (ecase slot (:real 0) (:imag 8))
+                           (tn-byte-offset x))))))))
 
-(define-vop (realpart/complex-double-float)
-  (:args
-   (x :scs (complex-double-reg) :load-if (not (sc-is x complex-double-stack))))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or complex-double-float))
-  (:result-types (:or double-float))
+(define-vop (realpart/complex-double-float complex-double-float-value)
   (:translate realpart)
-  (:policy :fast-safe)
-  (:variant-vars slot)
-  (:variant :real)
   (:note "complex double float realpart")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'realpart/complex-double-float x r slot)))
+  (:variant :real))
 
-(define-vop (imagpart/complex-double-float)
-  (:args
-   (x :scs (complex-double-reg) :load-if (not (sc-is x complex-double-stack))))
-  (:results (r :scs (double-reg)))
-  (:arg-types (:or complex-double-float))
-  (:result-types (:or double-float))
+(define-vop (imagpart/complex-double-float complex-double-float-value)
   (:translate imagpart)
-  (:policy :fast-safe)
-  (:variant-vars slot)
-  (:variant :imag)
   (:note "complex double float imagpart")
-  (:vop-var vop)
-  (:generator 3 (vop-not-yet-implemented 'imagpart/complex-double-float x r slot)))
-
-(define-move-vop move-complex-single-float-arg :move-arg
-  (complex-single-reg descriptor-reg) (complex-single-reg))
-
-(define-move-vop move-complex-double-float-arg :move-arg
-  (complex-double-reg descriptor-reg) (complex-double-reg))
-(define-move-vop move-single-float-arg :move-arg
-  (single-reg descriptor-reg) (single-reg))
-(define-move-vop move-double-float-arg :move-arg
-  (double-reg descriptor-reg) (double-reg))
-;;; Use standard MOVE-ARG + coercion to move an untagged float to a
-;;; descriptor passing location.
-(define-move-vop move-arg :move-arg
-  (single-reg double-reg complex-single-reg complex-double-reg)
-  (descriptor-reg))
+  (:variant :imag))

@@ -1,0 +1,27 @@
+== cross-compiler
+PASS  crossbuild pass-1 builds obj/xbuild/wasm/xc.core
+PASS  the whole tree cross-compiles into after-xc.core
+PASS  pass-1 log has no warnings
+PASS  after-xc used no unimplemented VOP (worklist empty)
+PASS  no placeholder generator remains in src/compiler/wasm
+== level 0
+PASS  level-0: 16 checks, all modules validate and run
+== differential rig
+PASS  mini-runtime builds (wasi-sdk)
+PASS  Rust driver builds
+== level 1
+PASS  level-1: level1: passed=442 failed=0
+PASS  at least 400 level-1 argument sets pass (got 442)
+PASS  no case skipped (not compiled or unimplemented VOP)
+PASS  the assembly-routine module was built and validates
+PASS  level-1 family 'labels-fib-rec' passes
+PASS  level-1 family 'mv-unknown-local' passes
+PASS  level-1 family 'catch-throw-from-local' passes
+PASS  level-1 family 'uwp-throw' passes
+PASS  level-1 family 'dx-list' passes
+PASS  level-1 family 'optional-two' passes
+PASS  level-1 family 'rest-sum' passes
+PASS  level-1 family 'sf-mul' passes
+PASS  level-1 family 'df-round' passes
+
+passed=21 failed=0

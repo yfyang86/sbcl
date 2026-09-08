@@ -157,22 +157,42 @@
       (inst i32.eq)
       (inst jump-if err-lab))))
 
-;;; The raw-addr slot of an fdefn holds the entry of the function in
-;;; the funcref table; the trampolines it refers to belong to the full
-;;; call convention (doc/wasm-port/04-sprints.md, Sprint 3).
+;;; The raw-addr slot of an fdefn holds the table entry to call: the
+;;; simple-fun's own entry, or the closure trampoline (which finds the
+;;; closure in the fdefn) for anything else; the fun slot holds the
+;;; function object. An unbound fdefn calls the undefined trampoline.
 (define-vop (set-fdefn-fun)
   (:policy :fast-safe)
-  (:args (function :scs (descriptor-reg))
-         (fdefn :scs (descriptor-reg)))
+  (:args (function :scs (descriptor-reg) :to :save)
+         (fdefn :scs (descriptor-reg) :to :save))
+  (:temporary (:scs (non-descriptor-reg)) entry)
   (:generator 3
-    (vop-not-yet-implemented 'set-fdefn-fun function fdefn)))
+    (let ((simple-fun (gen-label))
+          (store (gen-label)))
+      (load-reg function)
+      (emit-load-sized 1 nil (- fun-pointer-lowtag))
+      (inst i32.const simple-fun-widetag)
+      (inst i32.eq)
+      (inst jump-if simple-fun)
+      (store-reg entry (inst i32.const (make-fixup 'closure-tramp :assembly-routine-entry)))
+      (inst jump store)
+      (emit-label simple-fun)
+      (loadw entry function simple-fun-self-slot fun-pointer-lowtag)
+      (emit-label store)
+      (storew entry fdefn fdefn-raw-addr-slot other-pointer-lowtag)
+      (storew function fdefn fdefn-fun-slot other-pointer-lowtag))))
 
 (define-vop (fdefn-makunbound)
   (:policy :fast-safe)
   (:translate fdefn-makunbound)
   (:args (fdefn :scs (descriptor-reg)))
   (:generator 38
-    (vop-not-yet-implemented 'fdefn-makunbound fdefn)))
+    (load-reg fdefn)
+    (emit-store-word (- (ash fdefn-fun-slot word-shift) other-pointer-lowtag)
+      (inst i32.const nil-value))
+    (load-reg fdefn)
+    (emit-store-word (- (ash fdefn-raw-addr-slot word-shift) other-pointer-lowtag)
+      (inst i32.const (make-fixup 'undefined-tramp :assembly-routine-entry)))))
 
 ;;;; Binding and Unbinding.
 
