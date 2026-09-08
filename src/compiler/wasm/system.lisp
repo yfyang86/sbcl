@@ -353,12 +353,17 @@
   (:translate %data-dependency-barrier)
   (:generator 3))
 
-;;; Coverage marks need a code-relative data area; see the deferred list
-;;; in doc/wasm-port/04-sprints.md.
+;;; Coverage marks live in a byte area of the code object whose position
+;;; is only known once the boxed header length is; the mark is a load-time
+;;; fixup on the code object (sb-cover support is Phase 4 of the plan).
 (define-vop (sb-c::mark-covered)
   (:info index)
   (:generator 4
-    (vop-not-yet-implemented 'sb-c::mark-covered index)))
+    (load-reg code-tn)
+    (inst i32.const (make-fixup index :code-coverage-index))
+    (inst i32.add)
+    (inst i32.const 1)
+    (inst i32.store8 0)))
 
 ;;;; Square root
 

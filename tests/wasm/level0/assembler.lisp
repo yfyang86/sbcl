@@ -255,34 +255,38 @@
 (defun lower-function (thunk &key params results locals)
   "Assemble THUNK's label stream through a section, then lower it. The
 entry is the first label THUNK returns."
+  (declare (ignore results))
   (let* ((segment (sb-assem:make-segment))
          (section (sb-assem::make-section))
          (entry (sb-assem:assemble (section) (funcall thunk))))
     (sb-assem::%assemble segment section)
-    (wasm-function-body segment entry (sb-assem::segment-final-posn segment)
-                        :params params :results results :locals locals)))
+    (lower-code-range segment (sb-assem:label-position entry)
+                      (sb-assem::segment-final-posn segment)
+                      :params params :locals locals)))
 
 (defun test-function-assembler ()
   (let ((m (make-wasm-module)))
-    ;; sum 1..10 with a backward jump; locals 2 = i, 3 = acc ($pc 0, scratch 1)
+    ;; sum 1..10 with a backward jump; locals 5 = i, 6 = acc (three VOP
+    ;; scratch locals, then $pc 3 and the jump-table scratch 4)
     (multiple-value-bind (body locals)
         (lower-function
          (lambda ()
            (let ((entry (sb-assem:gen-label)) (head (sb-assem:gen-label))
                  (done (sb-assem:gen-label)))
              (sb-assem:emit-label entry)
-             (inst i32.const 10) (inst local.set 2)
+             (inst i32.const 10) (inst local.set 5)
              (sb-assem:emit-label head)
-             (inst local.get 2) (inst i32.eqz) (inst jump-if done)
-             (inst local.get 3) (inst local.get 2) (inst i32.add) (inst local.set 3)
-             (inst local.get 2) (inst i32.const 1) (inst i32.sub) (inst local.set 2)
+             (inst local.get 5) (inst i32.eqz) (inst jump-if done)
+             (inst local.get 6) (inst local.get 5) (inst i32.add) (inst local.set 6)
+             (inst local.get 5) (inst i32.const 1) (inst i32.sub) (inst local.set 5)
              (inst jump head)
              (sb-assem:emit-label done)
-             (inst local.get 3) (inst return)
+             (inst local.get 6) (inst return)
              entry))
          :locals '((2 . :i32)))
       (wasm-add-function m '() '(:i32) locals body :name "sum10" :export "sum10"))
-    ;; a three-way jump table on the parameter; $pc is local 1, scratch 2
+    ;; a three-way jump table on the parameter; the scratch locals are
+    ;; 1..3, $pc is local 4, the jump-table scratch 5
     (multiple-value-bind (body locals)
         (lower-function
          (lambda ()

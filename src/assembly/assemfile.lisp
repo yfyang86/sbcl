@@ -74,6 +74,7 @@
                      (loop for (this . rest) on *entry-points*
                            when (assoc (car this) rest)
                            collect (car this))))
+            #+wasm (sb-vm::wasm-note-assembly-routines (asm-segment assembly) *entry-points*)
             (dump-assembler-routines (asm-segment assembly)
                                      (segment-buffer (asm-segment assembly))
                                      (asm-fixup-notes assembly)

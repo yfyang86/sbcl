@@ -1096,7 +1096,10 @@
     :code-object
     :layout :immobile-symbol
     #+linkage-space :linkage-cell
-    :layout-id)
+    :layout-id
+    ;; WebAssembly: a CALL_INDIRECT type index (name: (params results)),
+    ;; a table index of an assembly routine, a code-coverage byte index
+    #+wasm :function-type #+wasm :assembly-routine-entry #+wasm :code-coverage-index)
   #'equalp)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)

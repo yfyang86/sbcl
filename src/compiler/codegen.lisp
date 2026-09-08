@@ -249,12 +249,14 @@
       (format *compiler-trace-output* "~|~%assembly code for ~S~2%" component)))
   (let* ((prev-env nil)
          (sb-vm::*adjustable-vectors* nil)
+         #+wasm (sb-vm::*wasm-block-labels* '())
          ;; The first function's alignment word is zero-filled, but subsequent
          ;; ones can use a NOP which helps the disassembler not lose sync.
          (filler-pattern 0)
          (asmstream (make-asmstream))
          (*asmstream* asmstream))
-    (declare (special sb-vm::*adjustable-vectors*))
+    (declare (special sb-vm::*adjustable-vectors*
+                      #+wasm sb-vm::*wasm-block-labels*))
 
     (emit (asmstream-elsewhere-section asmstream)
           (asmstream-elsewhere-label asmstream))
@@ -283,7 +285,10 @@
               (emit-block-header (block-label 1block)
                                  (ir2-block-%trampoline-label block)
                                  (ir2-block-dropped-thru-to block)
-                                 alignp)))
+                                 alignp)
+              ;; the function assembler groups blocks by environment
+              #+wasm (push (cons (block-label 1block) (block-environment 1block))
+                           sb-vm::*wasm-block-labels*)))
           (let ((env (block-environment 1block)))
             (unless (eq env prev-env)
               (let ((lab (gen-label "environment elsewhere start")))
@@ -353,7 +358,8 @@
                                          (make-segment (default-segment-run-scheduler) skew))))
         ;; The Wasm backend lowers the linear code of each entry into a
         ;; structured function once label positions are final.
-        #+wasm (sb-vm::wasm-note-component ir2-component (asm-segment assembly) asmstream)
+        #+wasm (sb-vm::wasm-note-component ir2-component (asm-segment assembly) asmstream
+                                           (reverse sb-vm::*wasm-block-labels*))
         assembly))))
 
 (defun label-elsewhere-p (label-or-posn kind elsewhere-label)

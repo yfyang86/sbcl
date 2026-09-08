@@ -22,13 +22,19 @@
 (defconstant +thread-registers-offset+ 0)          ; 32 words
 (defconstant +thread-float-registers-offset+ 128)  ; 32 x 8 bytes
 (defconstant +thread-error-args-offset+ 384)       ; 16 words
+(defconstant +thread-float-modes-offset+ 452)      ; software float modes word
+
+;;; The scratch locals +SCRATCH-I32-LOCAL+, +SCRATCH-F32-LOCAL+ and
+;;; +SCRATCH-F64-LOCAL+ every Lisp function starts with are defined in
+;;; func-asm.lisp (compiled before this file), which declares them.
 (defconstant +thread-area-bytes+ 512)
 
 (defconstant +import-internal-error+ 0)   ; (kind code nargs) -> trap
 (defconstant +import-alloc+ 1)            ; (nbytes) -> address
 (defconstant +import-alloc-list+ 2)       ; (nbytes) -> address
 (defconstant +import-pending-interrupt+ 3) ; () -> ()
-(defconstant +n-runtime-imports+ 4)
+;;; +N-RUNTIME-IMPORTS+, +LISP-FUNCTION-TYPE-INDEX+, +TAG-LISP-UNWIND+ and
+;;; +THREAD-UNWIND-TARGET-OFFSET+ are defined in func-asm.lisp.
 
 ;;;; Register access
 ;;;;
@@ -75,21 +81,22 @@
 ;;;; float occupies the low four bytes of its slot.
 
 (defmacro load-freg (tn format)
-  "Push the float in float register TN as FORMAT (:single or :double)."
+  "Push the float in float register TN as FORMAT (:single or :double,
+evaluated)."
   `(progn
      (inst global.get +thread-global+)
-     ,(ecase format
-        (:single `(inst f32.load (float-register-byte-offset (tn-offset ,tn))))
-        (:double `(inst f64.load (float-register-byte-offset (tn-offset ,tn)))))))
+     (ecase ,format
+       (:single (inst f32.load (float-register-byte-offset (tn-offset ,tn))))
+       (:double (inst f64.load (float-register-byte-offset (tn-offset ,tn)))))))
 
 (defmacro store-freg (tn format &body value-forms)
   "Evaluate VALUE-FORMS, which push one FORMAT value, into float register TN."
   `(progn
      (inst global.get +thread-global+)
      ,@value-forms
-     ,(ecase format
-        (:single `(inst f32.store (float-register-byte-offset (tn-offset ,tn))))
-        (:double `(inst f64.store (float-register-byte-offset (tn-offset ,tn)))))))
+     (ecase ,format
+       (:single (inst f32.store (float-register-byte-offset (tn-offset ,tn))))
+       (:double (inst f64.store (float-register-byte-offset (tn-offset ,tn)))))))
 
 ;;; The imaginary part of a complex float register is the next slot.
 (defun complex-reg-real-offset (tn) (tn-offset tn))
@@ -171,12 +178,12 @@ VALUE-FORMS at address+DISPLACEMENT."
 (defun load-frame-word (result base wordindex)
   (store-reg result
     (load-reg base)
-    (inst i32.load (ash wordindex word-shift))))
+    (emit-load-word (ash wordindex word-shift))))
 
 (defun store-frame-word (value base wordindex)
   (load-reg base)
-  (load-reg value)
-  (inst i32.store (ash wordindex word-shift)))
+  (emit-store-word (ash wordindex word-shift)
+    (load-reg value)))
 
 (defmacro load-stack-tn (reg stack)
   `(let ((reg ,reg) (stack ,stack))
@@ -553,18 +560,18 @@ pushed by VALUE-FORMS at address+DISPLACEMENT."
   "Push the float in float register slot SLOT as FORMAT."
   `(progn
      (inst global.get +thread-global+)
-     ,(ecase format
-        (:single `(inst f32.load (float-register-byte-offset ,slot)))
-        (:double `(inst f64.load (float-register-byte-offset ,slot))))))
+     (ecase ,format
+       (:single (inst f32.load (float-register-byte-offset ,slot)))
+       (:double (inst f64.load (float-register-byte-offset ,slot))))))
 
 (defmacro store-freg-slot (slot format &body value-forms)
   "Evaluate VALUE-FORMS, which push one FORMAT value, into float register slot SLOT."
   `(progn
      (inst global.get +thread-global+)
      ,@value-forms
-     ,(ecase format
-        (:single `(inst f32.store (float-register-byte-offset ,slot)))
-        (:double `(inst f64.store (float-register-byte-offset ,slot))))))
+     (ecase ,format
+       (:single (inst f32.store (float-register-byte-offset ,slot)))
+       (:double (inst f64.store (float-register-byte-offset ,slot))))))
 
 (defun emit-load-float (format displacement)
   "With an address on the stack, push the FORMAT float at address+DISPLACEMENT."
@@ -586,9 +593,9 @@ VALUE-FORMS at address+DISPLACEMENT."
          (inst i32.add)
          (setf ,d 0))
        ,@value-forms
-       ,(ecase format
-          (:single `(inst f32.store ,d))
-          (:double `(inst f64.store ,d))))))
+       (ecase ,format
+         (:single (inst f32.store ,d))
+         (:double (inst f64.store ,d))))))
 
 ;;; ARRAYP says whether INDEX counts elements of SIZE bytes (arrays) or
 ;;; words (raw instance slots).

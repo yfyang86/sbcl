@@ -38,6 +38,8 @@ const REG_NSP: u32 = 5;
 const REG_LEXENV: u32 = 6;
 const REG_RA: u32 = 29;
 const REG_A0: u32 = 10;
+const REG_CODE: u32 = 7;
+const FUN_POINTER_LOWTAG: u32 = 5;
 const REGISTER_ARG_COUNT: u32 = 4;
 const FIXNUM_TAG_BITS: u32 = 2;
 
@@ -123,25 +125,52 @@ fn run_case(engine: &Engine, minirt: &Module, modules: &mut HashMap<String, Modu
         }
     };
     let n_funcs = 256; // generous; the module's element segment fills what it needs
-    let base = table.grow(&mut store, n_funcs, Ref::Func(None))? as i32;
-
-    let mut ml: Linker<Host> = Linker::new(engine);
-    ml.define(&store, "env", "memory", memory)?;
-    ml.define(&store, "env", "__indirect_function_table", table)?;
-    let g_thread = Global::new(&mut store, GlobalType::new(ValType::I32, Mutability::Const), Val::I32(thread as i32))?;
-    let g_base = Global::new(&mut store, GlobalType::new(ValType::I32, Mutability::Const), Val::I32(base))?;
-    ml.define(&store, "env", "thread", g_thread)?;
-    ml.define(&store, "env", "table_base", g_base)?;
-    ml.func_wrap("env", "internal_error", |mut caller: Caller<'_, Host>, kind: i32, code: i32, nargs: i32| -> wasmtime::Result<()> {
-        caller.data_mut().error = Some((kind, code, nargs));
-        Err(err(format!("internal error: kind {kind} code {code} nargs {nargs}")))
-    })?;
     let alloc = rt.get_func(&mut store, "alloc").context("minirt alloc")?;
     let alloc_list = rt.get_func(&mut store, "alloc_list").context("minirt alloc_list")?;
     let pending = rt.get_func(&mut store, "pending_interrupt").context("minirt pending_interrupt")?;
-    ml.define(&store, "env", "alloc", alloc)?;
-    ml.define(&store, "env", "alloc_list", alloc_list)?;
-    ml.define(&store, "env", "pending_interrupt", pending)?;
+    let g_thread = Global::new(&mut store, GlobalType::new(ValType::I32, Mutability::Const), Val::I32(thread as i32))?;
+    // the unwind tag is shared by every module of the store
+    let tag = Tag::new(&mut store, &TagType::new(FuncType::new(engine, [], [])))?;
+    // the imports every Lisp module needs, with its own table base
+    let env_linker = |store: &mut Store<Host>, base: i32| -> Result<Linker<Host>> {
+        let mut ml: Linker<Host> = Linker::new(engine);
+        ml.define(&*store, "env", "memory", memory)?;
+        ml.define(&*store, "env", "__indirect_function_table", table)?;
+        let g_base = Global::new(&mut *store, GlobalType::new(ValType::I32, Mutability::Const), Val::I32(base))?;
+        ml.define(&*store, "env", "thread", g_thread)?;
+        ml.define(&*store, "env", "table_base", g_base)?;
+        ml.define(&*store, "env", "lisp_unwind", tag)?;
+        ml.func_wrap("env", "internal_error", |mut caller: Caller<'_, Host>, kind: i32, code: i32, nargs: i32| -> wasmtime::Result<()> {
+            caller.data_mut().error = Some((kind, code, nargs));
+            Err(err(format!("internal error: kind {kind} code {code} nargs {nargs}")))
+        })?;
+        ml.define(&*store, "env", "alloc", alloc)?;
+        ml.define(&*store, "env", "alloc_list", alloc_list)?;
+        ml.define(&*store, "env", "pending_interrupt", pending)?;
+        Ok(ml)
+    };
+    // the assembly routines (asm.wasm next to the cases), exported as "lisp" NAME
+    let asm_path = dir.join("asm.wasm");
+    let asm_instance = if asm_path.exists() {
+        let asm = match modules.get("asm.wasm") {
+            Some(m) => m.clone(),
+            None => {
+                let m = Module::from_file(engine, &asm_path).context("loading asm.wasm")?;
+                modules.insert("asm.wasm".to_string(), m.clone());
+                m
+            }
+        };
+        let asm_base = table.grow(&mut store, n_funcs, Ref::Func(None))? as i32;
+        let ml = env_linker(&mut store, asm_base)?;
+        Some(ml.instantiate(&mut store, &asm).context("instantiating asm.wasm")?)
+    } else {
+        None
+    };
+    let base = table.grow(&mut store, n_funcs, Ref::Func(None))? as i32;
+    let mut ml = env_linker(&mut store, base)?;
+    if let Some(asm) = asm_instance {
+        ml.instance(&mut store, "lisp", asm)?;
+    }
     let _inst = ml.instantiate(&mut store, &module).with_context(|| format!("instantiating {}", case.module))?;
 
     // register file
@@ -149,18 +178,28 @@ fn run_case(engine: &Engine, minirt: &Module, modules: &mut HashMap<String, Modu
         memory.write(store, (thread + reg * 4) as usize, &value.to_le_bytes())?;
         Ok(())
     };
-    if case.args.len() as u32 > REGISTER_ARG_COUNT {
-        bail!("more than {REGISTER_ARG_COUNT} arguments are not supported by the rig yet");
-    }
-    set(&mut store, REG_NARGS, (case.args.len() as u32) << FIXNUM_TAG_BITS)?;
+    // the first REGISTER_ARG_COUNT arguments go in A0.., the rest in
+    // the callee's frame slots (frame word i for argument i), as a full
+    // call passes them; CSP is past the arguments
+    let nargs = case.args.len() as u32;
+    set(&mut store, REG_NARGS, nargs << FIXNUM_TAG_BITS)?;
     for (i, a) in case.args.iter().enumerate() {
-        set(&mut store, REG_A0 + i as u32, *a)?;
+        if (i as u32) < REGISTER_ARG_COUNT {
+            set(&mut store, REG_A0 + i as u32, *a)?;
+        } else {
+            memory.write(&mut store, (stack + 4 * i as u32) as usize, &a.to_le_bytes())?;
+        }
     }
     set(&mut store, REG_CFP, stack)?;
-    set(&mut store, REG_CSP, stack)?;
+    set(&mut store, REG_CSP, stack + 4 * nargs.max(REGISTER_ARG_COUNT))?;
     set(&mut store, REG_OCFP, 0)?;
     set(&mut store, REG_RA, 0)?;
-    set(&mut store, REG_LEXENV, 0)?;
+    // LEXENV and CODE point at a fake simple-fun (header 0) in the thread
+    // area's free part, so that the XEP's code-object computation reads
+    // valid memory
+    let fake_fun = thread + 480 + FUN_POINTER_LOWTAG;
+    set(&mut store, REG_LEXENV, fake_fun)?;
+    set(&mut store, REG_CODE, fake_fun)?;
     set(&mut store, REG_NSP, nstack_end)?;
 
     let slot = base as u32 + case.position;
