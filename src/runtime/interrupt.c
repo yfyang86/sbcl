@@ -1,3 +1,6 @@
+/* Not built on WebAssembly (see wasm-interrupt.c and wasm-arch.c). */
+#include "genesis/sbcl.h"
+#ifndef LISP_FEATURE_WASM
 /*
  * interrupt-handling magic
  */
@@ -2142,3 +2145,5 @@ int sb_toggle_sigprof(os_context_t* context, int block) {
     }
 }
 #endif
+
+#endif /* LISP_FEATURE_WASM */

@@ -23,7 +23,9 @@
 #include <errno.h>
 #include <sys/types.h>
 #ifndef LISP_FEATURE_WIN32
+#ifndef LISP_FEATURE_WASM
 #include <sys/wait.h>
+#endif
 #endif
 #ifdef ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>

@@ -2920,7 +2920,9 @@ https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/zero-oopsla-
 #if !defined LISP_FEATURE_DARWIN_JIT && !defined LISP_FEATURE_WIN32
 static void __attribute__((unused))
 zero_range_with_mmap(os_vm_address_t addr, os_vm_size_t length) {
-#ifdef LISP_FEATURE_LINUX
+#if defined LISP_FEATURE_WASM
+    memset(addr, 0, length);
+#elif defined LISP_FEATURE_LINUX
     // We use MADV_DONTNEED only on Linux due to differing semantics from BSD.
     // Linux treats it as a demand that the memory be 0-filled, or refreshed
     // from a file that backs the range. BSD takes it as a hint that you don't

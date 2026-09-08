@@ -50,3 +50,5 @@
 /contrib/asdf/asdf-upstream
 /doc/manual/*.html
 /version.lisp-expr
+/src/runtime/sbcl.wasm
+/src/runtime/wasm-linkage-table.c

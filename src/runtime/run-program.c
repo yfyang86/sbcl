@@ -1,3 +1,6 @@
+/* Not built on WebAssembly (see wasm-interrupt.c and wasm-arch.c). */
+#include "genesis/sbcl.h"
+#ifndef LISP_FEATURE_WASM
 /*
  * Unix support for the Lisp function RUN-PROGRAM and friends
  */
@@ -405,3 +408,5 @@ int spawn(char *program, char *argv[], int sin, int sout, int serr,
     }
     _exit(failure_code);
 }
+
+#endif /* LISP_FEATURE_WASM */

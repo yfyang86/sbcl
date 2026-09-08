@@ -23,7 +23,9 @@
 #endif
 #include <sys/types.h>
 #ifndef LISP_FEATURE_WIN32
+#ifndef LISP_FEATURE_WASM
 #include <sys/wait.h>
+#endif
 #endif
 #include <stdlib.h>
 #include <unistd.h>
@@ -622,7 +624,7 @@ initialize_lisp(int argc, char *argv[], char *envp[])
 #ifdef LISP_FEATURE_UNIX
 #ifdef LISP_FEATURE_OS_PROVIDES_CLOCK_GETTIME
     clock_gettime(
-#ifdef LISP_FEATURE_LINUX
+#if defined LISP_FEATURE_LINUX && !defined LISP_FEATURE_WASM
         CLOCK_MONOTONIC_COARSE
 #else
         CLOCK_MONOTONIC
@@ -650,7 +652,7 @@ initialize_lisp(int argc, char *argv[], char *envp[])
     bool have_hardwired_spaces = os_preinit(argv, envp);
 
     interrupt_init();
-#ifdef LISP_FEATURE_UNIX
+#if defined LISP_FEATURE_UNIX && !defined LISP_FEATURE_WASM
     /* Use SETMASK instead of BLOCK to clear the inhereted sigmask. */
     thread_sigmask(SIG_SETMASK, &blockable_sigset, 0);
 #endif
@@ -804,6 +806,12 @@ initialize_lisp(int argc, char *argv[], char *envp[])
     core_string = core;
     posix_argv = options.argv;
 
+#ifdef LISP_FEATURE_WASM
+    /* The core's compiled code is a Wasm module next to the core file;
+     * it has to be instantiated before anything calls into Lisp. */
+    extern void wasm_load_core_module(const char *core_path);
+    wasm_load_core_module(core);
+#endif
     create_main_lisp_thread(initfun.lispfun);
     return 0;
 }

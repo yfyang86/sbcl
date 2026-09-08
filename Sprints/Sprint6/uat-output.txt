@@ -1,0 +1,32 @@
+== Lisp side
+PASS  crossbuild pass-1 builds obj/xbuild/wasm/xc.core
+PASS  crossbuild pass-2 cross-compiles the tree and runs genesis
+PASS  genesis alone (with the map file) reproduces the core
+PASS  the core module validates (wasm-tools, all features)
+PASS  genesis wrote the map file
+== runtime
+PASS  wasi-sdk present
+PASS  runtime builds: src/runtime/sbcl.wasm
+PASS  runtime build has no warnings
+PASS  sbcl.wasm validates
+PASS  sbcl.wasm imports sbcl_host.instantiate and exports the entry points
+== host
+PASS  host builds (sbcl-wasm)
+PASS  --version
+PASS  --help
+PASS  spin test program compiles
+PASS  deadline stops a spinning module with a backtrace
+PASS  Ctrl-C: first press notes the interrupt, second terminates
+== the cold core
+PASS  coreparse loads the core and links every required foreign symbol
+PASS  the core module instantiates against the runtime
+PASS  call_into_lisp reaches !COLD-INIT
+PASS  the run gets past the entry (no trap in the first Lisp frame, no unknown import)
+      cold-init ended with: sbcl-wasm: error while executing at wasm backtrace:
+PASS  coreindex.py decodes the map (finds !COLD-INIT by address)
+== regressions
+PASS  level-0: 16 checks
+PASS  after-xc core for the level-1 suite
+PASS  level-1: level1: passed=442 failed=0
+
+passed=24 failed=0

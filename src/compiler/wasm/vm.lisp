@@ -247,7 +247,10 @@
 ;;; Offsets of special stack frame locations. There is no return address
 ;;; on this target; RA-SAVE-OFFSET holds the caller's return-point
 ;;; descriptor and CODE-SAVE-OFFSET the caller's code object, which
-;;; together replace the LRA of other targets for the debugger.
+;;; together replace the LRA of other targets for the debugger. A full
+;;; call also saves CODE at CODE-SAVE-OFFSET of the caller's frame and
+;;; reloads it on return, since the callee's XEP sets CODE to its own
+;;; code object and nothing else restores the caller's.
 (defconstant ocfp-save-offset 0)
 (defconstant ra-save-offset 1)
 (defconstant code-save-offset 2)

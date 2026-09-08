@@ -1,0 +1,34 @@
+# -*- makefile -*- for the C-level run-time support for SBCL on
+# WebAssembly (wasm32-wasip1, built with wasi-sdk). See
+# doc/wasm-port/02-design.md and Sprints/Sprint6/develop.md.
+
+# This software is part of the SBCL system. See the README file for
+# more information.
+
+TARGET = sbcl.wasm
+ASSEM_SRC =
+ARCH_SRC = wasm-arch.c
+OS_SRC = wasm-wasi-os.c wasi-mman.c wasm-interrupt.c wasm-linkage-table.c
+# wasi-libc's emulation libraries: the signal and mman surfaces the
+# common sources still name (nothing is ever delivered), process clocks,
+# getpid
+OS_LIBS = -lwasi-emulated-signal -lwasi-emulated-mman \
+          -lwasi-emulated-process-clocks -lwasi-emulated-getpid
+DISABLE_PIE = no
+
+CFLAGS += --target=wasm32-wasip1 -Wno-unused-function -Wno-unused-variable
+# in CPPFLAGS so that dependency generation sees them too
+CPPFLAGS += --target=wasm32-wasip1 \
+            -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN \
+            -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_GETPID
+# the shared function table and memory are exported for the Lisp modules;
+# the table grows as modules are added; memory may reach the wasm32
+# limit; the C shadow stack is 8 MiB; symbols the runtime does not define
+# become imports the host answers with traps
+LINKFLAGS += --target=wasm32-wasip1 \
+             -Wl,--export-table -Wl,--growable-table -Wl,--export-memory \
+             -Wl,--max-memory=4294967296 -Wl,-z,stack-size=8388608 \
+             -Wl,--allow-undefined \
+             -Wl,--export=alloc -Wl,--export=alloc_list
+
+GC_SRC = fullcgc.c gencgc.c traceroot.c

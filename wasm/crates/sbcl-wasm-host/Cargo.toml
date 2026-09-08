@@ -3,7 +3,7 @@ name = "sbcl-wasm-host"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
-description = "Wasmtime host for the SBCL WebAssembly port (Phase 0 spike form)"
+description = "Wasmtime host for the SBCL WebAssembly port"
 
 [[bin]]
 name = "sbcl-wasm"
@@ -18,3 +18,4 @@ anyhow.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 wasm-encoder.workspace = true
+ctrlc = "3"

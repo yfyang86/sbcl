@@ -24,7 +24,9 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#ifndef LISP_FEATURE_WASM
 #include <setjmp.h>
+#endif
 
 struct dyndebug_config dyndebug_config;
 
@@ -137,7 +139,9 @@ static void indent(int n, FILE* f)
         fputs(spaces + 64 - n, f);
 }
 
+#ifndef LISP_FEATURE_WASM
 static jmp_buf ldb_print_nlx;
+#endif
 static bool continue_p(bool newline, iochannel_t io)
 {
     char buffer[256];
@@ -157,7 +161,11 @@ static bool continue_p(bool newline, iochannel_t io)
 
             if (fgets(buffer, sizeof(buffer), IO.in)) {
                 if (buffer[0] == 'n' || buffer[0] == 'N')
+#ifndef LISP_FEATURE_WASM
                     longjmp(ldb_print_nlx, 1);
+#else
+                    exit(1);
+#endif
                 else
                     cur_lines = 0;
             } else {
@@ -802,7 +810,9 @@ void print_to_iochan(lispobj obj, iochannel_t io)
     max_depth = 5;
     max_lines = 20;
 
+#ifndef LISP_FEATURE_WASM
     if (!setjmp(ldb_print_nlx))
+#endif
         print_obj("", obj, io);
 
     putc('\n', IO.out);

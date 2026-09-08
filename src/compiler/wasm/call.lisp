@@ -557,13 +557,20 @@
        ,@(when (eq return :fixed)
            '((:temporary (:scs (descriptor-reg) :from :eval) move-temp)))
        ,@(unless (eq return :tail)
-           '((:temporary (:sc control-stack :offset nfp-save-offset) nfp-save)))
+           '((:temporary (:sc control-stack :offset nfp-save-offset) nfp-save)
+             ;; the callee's XEP sets CODE to its own code object and nothing
+             ;; on this target restores it on return: save ours across the call
+             (:temporary (:sc control-stack :offset code-save-offset) code-save)))
        (:generator ,(+ (if named 5 0)
                        (if variable 19 1)
                        (if (eq return :tail) 0 10)
                        15
                        (if (eq return :unknown) 25 0))
          (let ((cur-nfp (current-nfp-tn vop)))
+           ;; our code object, before CODE is used to pass the callee's
+           ;; function; reloaded after the call
+           ,@(unless (eq return :tail)
+               '((store-stack-tn code-save code-tn)))
            ;; the function to call: FUNCTION := its simple-fun
            ,@(case named
                ((t)
@@ -622,11 +629,13 @@
            (emit-full-call function ,(eq return :tail) :index ,(not (null named)))
            ,@(ecase return
                (:fixed
-                '((default-unknown-values vop values nvals move-temp)
+                '((load-stack-tn code-tn code-save)
+                  (default-unknown-values vop values nvals move-temp)
                   (when cur-nfp
                     (load-stack-tn cur-nfp nfp-save))))
                (:unknown
                 '((note-this-location vop :unknown-return)
+                  (load-stack-tn code-tn code-save)
                   (receive-unknown-values values-start nvals start count)
                   (when cur-nfp
                     (load-stack-tn cur-nfp nfp-save))))

@@ -3184,7 +3184,11 @@ raw-address words."
                                (:type (sb-wasm-asm::wasm-type-index module (first operand)
                                                                     (second operand)))
                                (:assembly-routine-entry (table-slot (routine operand)))
-                               (:foreign (+ sb-vm::+foreign-table-base+ (foreign-index operand)))
+                               ;; both kinds resolve to the linkage cell: OS_LINK_RUNTIME
+                               ;; stores a function's table index or a data
+                               ;; symbol's address there, and the compiled code
+                               ;; loads the cell (FOREIGN-SYMBOL-SAP)
+                               (:foreign (sb-vm::alien-linkage-index-to-addr (foreign-index operand) nil))
                                (:foreign-dataref
                                 (sb-vm::alien-linkage-index-to-addr (foreign-index (list operand)) t))
                                (:coverage (error "coverage marks are not supported in the cold core"))
@@ -3208,9 +3212,12 @@ raw-address words."
               do (dotimes (i 4)
                    (setf (aref octets (+ start i)) (ldb (byte 8 (* 8 i)) value))))
         (sb-wasm-asm::wasm-add-custom-section module "sbcl.core.table" octets))
-      ;; simple-fun self slots: the table index of the entry's function
+      ;; simple-fun self slots: the table index of the entry's function.
+      ;; ENTRIES is in IR2-COMPONENT-ENTRIES order, which the dumper
+      ;; (FOP-FUN-ENTRY, see DUMP.LISP) numbers from the last simple-fun
+      ;; of the code object down to the first.
       (loop for (code functions entries) in parsed
-            do (loop for fun-index from 0
+            do (loop for fun-index downfrom (1- (length entries))
                      for local in entries
                      do (let ((fn (%code-entry-point code fun-index)))
                           (write-wordindexed/raw

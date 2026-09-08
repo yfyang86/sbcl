@@ -114,7 +114,9 @@ call_lossage_handler()
     exit(1);
 }
 
+#ifndef LISP_FEATURE_WASM
 #include <setjmp.h>
+#endif
 void
 lose(char *fmt, ...)
 {

@@ -182,7 +182,11 @@ os_sem_destroy(os_sem_t *sem)
  */
 
 void *os_dlsym_default(char *name);
-#ifndef LISP_FEATURE_WIN32
+#if defined LISP_FEATURE_WASM
+/* the table generated from the core's required symbols (wasm-linkage-table.c) */
+extern void *wasm_linkage_lookup(const char *name);
+void *os_dlsym_default(char *name) { return wasm_linkage_lookup(name); }
+#elif !defined LISP_FEATURE_WIN32
 void *
 os_dlsym_default(char *name)
 {
@@ -272,6 +276,17 @@ bool gc_managed_heap_space_p(lispobj addr)
 void* load_core_bytes(int fd, os_vm_offset_t offset, os_vm_address_t addr, os_vm_size_t len,
                       int is_readonly_space)
 {
+#ifdef LISP_FEATURE_WASM
+    /* no mmap: the space was made available by os_alloc_gc_space; read into it */
+    os_vm_address_t start = addr;
+    if (lseek(fd, offset, SEEK_SET) == -1) lose("load_core_bytes: lseek failed");
+    while (len) {
+        ssize_t n = read(fd, addr, len);
+        if (n <= 0) lose("load_core_bytes: read failed");
+        addr += n; len -= n;
+    }
+    return start;
+#endif
     static int buggy_map_private;
 #if defined LISP_FEATURE_MIPS
     /* Of the few MIPS machines I have access to, one definitely exhibits a
@@ -437,7 +452,7 @@ lispobj* duplicate_codeblob_offheap(lispobj code)
     return mem;
 }
 
-#ifdef LISP_FEATURE_UNIX
+#if defined LISP_FEATURE_UNIX && !defined LISP_FEATURE_WASM
 void
 os_protect(os_vm_address_t address, os_vm_size_t length, os_vm_prot_t prot)
 {
@@ -514,7 +529,7 @@ int sbcl_mprotect(void* addr, size_t length, int prot) {
 }
 #endif
 
-#ifdef LISP_FEATURE_ELF
+#if defined LISP_FEATURE_ELF && !defined LISP_FEATURE_WASM
 #if defined LISP_FEATURE_SUNOS && defined LISP_FEATURE_X86_64
 #define ELF_TARGET_AMD64
 #endif

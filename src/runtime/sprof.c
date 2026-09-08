@@ -1,3 +1,6 @@
+/* Not built on WebAssembly (see wasm-interrupt.c and wasm-arch.c). */
+#include "genesis/sbcl.h"
+#ifndef LISP_FEATURE_WASM
 #include <signal.h>
 #include <stdio.h>
 #include <errno.h>
@@ -669,3 +672,5 @@ uword_t acquire_sprof_data(struct thread* thread)
     // This this thread owns that thread's data. ('This' and 'that' could be the same)
     return retval;
 }
+
+#endif /* LISP_FEATURE_WASM */

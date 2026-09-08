@@ -1,3 +1,6 @@
+/* Not built on WebAssembly (see wasm-interrupt.c and wasm-arch.c). */
+#include "genesis/sbcl.h"
+#ifndef LISP_FEATURE_WASM
 /*
  * This software is part of the SBCL system. See the README file for
  * more information.
@@ -1618,3 +1621,5 @@ int main(int argc, char *argv[], char **envp)
     ldb_monitor();
 }
 #endif
+
+#endif /* LISP_FEATURE_WASM */
