@@ -1,33 +1,23 @@
-;;;; the machine-specific support routines needed by the file assembler
+;;;; the machine-specific support routines needed by the assembler
+;;;; routine definer, for the WebAssembly target
 
 ;;;; This software is part of the SBCL system. See the README file for
 ;;;; more information.
-;;;;
-;;;; This software is derived from the CMU CL system, which was
-;;;; written at Carnegie Mellon University and released into the
-;;;; public domain. The software is in the public domain and is
-;;;; provided with absolutely no warranty. See the COPYING and CREDITS
-;;;; files for more information.
 
 (in-package "SB-VM")
 
+;;; An assembly routine is an ordinary Wasm function in the core module;
+;;; calling one is a direct CALL through a fixup that resolves to its
+;;; function index.
 (defun generate-call-sequence (name style vop options)
   (declare (ignore vop options))
   (ecase style
-    (:raw
-     (let ((ra (make-symbol "RA")))
-       (values
-        `((inst jal ,ra (make-fixup ',name :assembly-routine)))
-        `((:temporary (:sc descriptor-reg :from (:eval 0) :to (:eval 1)
-                       :offset ra-offset)
-                      ,ra)))))
-    (:none
+    ((:raw :none)
      (values
-      `((inst jal zero-tn (make-fixup ',name :assembly-routine)))
+      `((inst call (make-fixup ',name :assembly-routine)))
       `()))))
 
 (defun generate-return-sequence (style)
   (ecase style
-    (:raw
-     `((inst jalr zero-tn ra-tn 0)))
+    (:raw `((inst return)))
     (:none)))

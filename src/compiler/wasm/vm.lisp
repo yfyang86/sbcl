@@ -1,4 +1,4 @@
-;;;; miscellaneous VM definition noise for the RISC-V
+;;;; miscellaneous VM definition noise for the WebAssembly target
 
 ;;;; This software is part of the SBCL system. See the README file for
 ;;;; more information.
@@ -11,20 +11,22 @@
 
 (in-package "SB-VM")
 
-(defconstant-eqx +fixup-kinds+ #(:absolute :i-type :s-type :u-type :u+i-type) #'equalp)
+;;; :ABSOLUTE patches a raw little-endian word (in constant vectors and
+;;; data); :LEB128 patches a fixed-width five-byte LEB128 immediate inside
+;;; an instruction (i32.const of an address that is only known at load
+;;; time).
+(defconstant-eqx +fixup-kinds+ #(:absolute :leb128) #'equalp)
 
-(defun u-and-i-inst-immediate (value)
-  (let ((hi (ash (+ value (expt 2 11)) -12)))
-    (values hi (- value (ash hi 12)))))
-
-(def!type short-immediate () `(signed-byte 12))
-(def!type short-immediate-fixnum () `(signed-byte ,(- 12 n-fixnum-tag-bits)))
-
-(deftype u+i-immediate ()
-  #-64-bit `(or (signed-byte 32) (unsigned-byte 32))
-  #+64-bit `(or (integer #x-80000800 #x7ffff7ff)
-                (integer ,(+ (ash 1 64) #x-80000800)
-                         ,(1- (ash 1 64)))))
+;;;; The register file
+;;;;
+;;;; Wasm has no registers that the garbage collector could see. The
+;;;; "registers" of this backend are word slots in a fixed area of the
+;;;; thread structure, addressed from the Wasm global $thread; a register
+;;;; number is an index into that area. Every VOP reads and writes them
+;;;; through LOAD-REG and STORE-REG (see macros.lisp). Descriptor
+;;;; registers are conservative GC roots exactly like the boxed registers
+;;;; of an interrupt context on other targets. See
+;;;; doc/wasm-port/02-design.md, 2.4.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *register-names* (make-array 32 :initial-element nil)))
@@ -38,57 +40,62 @@
              `(progn
                 (defregset *register-arg-offsets* ,@args)
                 (defconstant register-arg-count ,(length args)))))
-                     ; ABI register mnemonic
-  (defreg zero 0)    ; zero
-  (defreg ra 1)      ; ra
-  (defreg nsp 2)     ; sp
-  (defreg global 3)  ; gp
-  (defreg tp 4)      ; tp
-  (defreg lip 5)     ; t0, alternate link register
-  (defreg cfp 6)     ; t1
-  (defreg ocfp 7)    ; t2
-  (defreg nfp 8)     ; s0, callee-saved
-  (defreg csp 9)     ; s1  "
+  ;; control registers
+  (defreg nargs 0)      ; argument count (fixnum)
+  (defreg csp 1)        ; control stack pointer
+  (defreg cfp 2)        ; control frame pointer
+  (defreg ocfp 3)       ; old control frame pointer
+  (defreg nfp 4)        ; number stack frame pointer
+  (defreg nsp 5)        ; number (non-descriptor) stack pointer
+  (defreg lexenv 6)     ; the function object being called
+  (defreg code 7)       ; the code component of the running function
+  (defreg lip 8)        ; interior pointer scratch
+  (defreg cfunc 9)      ; C function (table index) for call-out
+  ;; argument-passing descriptor registers
+  (defreg a0 10)
+  (defreg a1 11)
+  (defreg a2 12)
+  (defreg a3 13)
+  ;; descriptor temporaries
+  (defreg l0 14)
+  (defreg l1 15)
+  (defreg l2 16)
+  (defreg l3 17)
+  (defreg l4 18)
+  (defreg l5 19)
+  ;; non-descriptor temporaries
+  (defreg nl0 20)
+  (defreg nl1 21)
+  (defreg nl2 22)
+  (defreg nl3 23)
+  (defreg nl4 24)
+  (defreg nl5 25)
+  (defreg nl6 26)
+  (defreg nl7 27)
+  (defreg tmp 28)       ; scratch for macros; never allocated
+  (defreg ra 29)        ; return-point descriptor of the current call
+  (defreg thread 30)    ; reserved for #+sb-thread
+  (defreg reserved 31)
 
-  (defreg a0 10)     ; a0, arg
-  (defreg nl0 11)    ; a1
-  (defreg a1 12)     ; a2
-  (defreg nl1 13)    ; a3
-  (defreg a2 14)     ; a4
-  (defreg nl2 15)    ; a5
-  (defreg a3 16)     ; a6
-  (defreg nl3 17)    ; a7
-  (defreg a4 18)     ; s2, callee-saved
-  (defreg nl4 19)    ; s3
-  (defreg a5 20)     ; s4
-  (defreg nl5 21)    ; s5
-  (defreg l0 22)     ; s6
-  (defreg nl6 23)    ; s7
-  (defreg l1 24)     ; s8
-  ;; A register needed to load constants into descriptor-regs
-  (defreg tmp 25)    ; s9
-  (defreg #-sb-thread l2 #+sb-thread thread 26) ; s10
-
-  (defreg cfunc 27)  ; s11
-  (defreg lexenv 28) ; t3
-  (defreg null 29)   ; t4
-  (defreg code 30)   ; t5
-  (defreg nargs 31)  ; t6
-
-  (defregset non-descriptor-regs nl0 nl1 nl2 ra nl3 nl4 nl5 nl6 nargs nfp cfunc)
-  (defregset descriptor-regs a0 a1 a2 a3 a4 a5 l0 l1 #-sb-thread l2 ocfp lexenv)
+  (defregset non-descriptor-regs nl0 nl1 nl2 nl3 nl4 nl5 nl6 nl7 nargs nfp cfunc)
+  (defregset descriptor-regs a0 a1 a2 a3 l0 l1 l2 l3 l4 l5 ocfp lexenv)
   (defregset reserve-descriptor-regs lexenv)
   (defregset reserve-non-descriptor-regs cfunc)
-  (defregset boxed-regs a0 a1 a2 a3 a4 a5 l0 l1 #-sb-thread l2 ocfp lexenv code)
+  ;; scanned by the GC as conservative roots
+  (defregset boxed-regs a0 a1 a2 a3 l0 l1 l2 l3 l4 l5 ocfp lexenv code)
 
-  (define-argument-register-set a0 a1 a2 a3 a4 a5))
-
+  (define-argument-register-set a0 a1 a2 a3))
+
+;;; Float "registers" are 32 double-width slots following the word
+;;; registers in the same area of the thread structure.
+(defconstant n-float-registers 32)
+
 (!define-storage-bases
  (define-storage-base registers :finite :size 32)
  (define-storage-base control-stack :unbounded :size 0)
  (define-storage-base non-descriptor-stack :unbounded :size 0)
 
- (define-storage-base float-registers :finite :size 32)
+ (define-storage-base float-registers :finite :size #.n-float-registers)
 
  (define-storage-base constant :non-packed)
  (define-storage-base immediate-constant :non-packed)
@@ -100,7 +107,6 @@
  (constant constant)
 
  ;; Immediate constant.
- (zero immediate-constant)
  (immediate immediate-constant)
 
  (control-stack control-stack)
@@ -109,7 +115,7 @@
           :reserve-locations #.(append reserve-non-descriptor-regs
                                        reserve-descriptor-regs)
           :alternate-scs (control-stack)
-          :constant-scs (immediate zero constant)
+          :constant-scs (immediate constant)
           :save-p t)
 
  ;; Pointer descriptor objects.  Must be seen by GC.
@@ -145,7 +151,7 @@
              :locations #.non-descriptor-regs
              :reserve-locations #.reserve-non-descriptor-regs
              :alternate-scs (signed-stack)
-             :constant-scs (zero immediate)
+             :constant-scs (immediate)
              :save-p t)
  (unsigned-stack non-descriptor-stack)
  (unsigned-reg registers
@@ -158,27 +164,25 @@
  ;; Non-descriptor floating point.
  (single-stack non-descriptor-stack)
  (single-reg float-registers
-             :locations #.(loop for i below 32 collect i)
+             :locations #.(loop for i below n-float-registers collect i)
              :alternate-scs (single-stack)
              :save-p t)
  (double-stack non-descriptor-stack :element-size (/ 64 n-word-bits))
  (double-reg float-registers
-             :locations #.(loop for i below 32 collect i)
+             :locations #.(loop for i below n-float-registers collect i)
              :alternate-scs (double-stack)
              :save-p t)
 
  (complex-single-stack non-descriptor-stack :element-size (/ (* 2 32) n-word-bits))
  (complex-single-reg float-registers
-                     :locations #.(loop for i below 32 by (/ (* 2 32) n-word-bits)
-                                        collect i)
-                     :element-size (/ (* 2 32) n-word-bits)
+                     :locations #.(loop for i below n-float-registers by 2 collect i)
+                     :element-size 2
                      :alternate-scs (complex-single-stack)
                      :save-p t)
  (complex-double-stack non-descriptor-stack :element-size (/ (* 2 64) n-word-bits))
  (complex-double-reg float-registers
-                     :locations #.(loop for i below 32 by (/ (* 2 64) n-word-bits)
-                                        collect i)
-                     :element-size (/ (* 2 64) n-word-bits)
+                     :locations #.(loop for i below n-float-registers by 2 collect i)
+                     :element-size 2
                      :save-p t
                      :alternate-scs (complex-double-stack))
 
@@ -186,17 +190,14 @@
  (unwind-block control-stack :element-size unwind-block-size)
  )
 
-;;;; Random TNs for interesting registers
 
 (macrolet ((defregtn (name sc)
                (let ((offset-sym (symbolicate name "-OFFSET"))
                      (tn-sym (symbolicate name "-TN")))
                  `(defglobal ,tn-sym
                    (make-random-tn (sc-or-lose ',sc) ,offset-sym)))))
-  (defregtn zero any-reg)
   (defregtn lip any-reg)
   (defregtn code descriptor-reg)
-  (defregtn null descriptor-reg)
 
   (defregtn nargs any-reg)
   (defregtn lexenv descriptor-reg)
@@ -209,31 +210,23 @@
   (defregtn nfp any-reg)
 
   (defregtn ra any-reg)
+  (defregtn cfunc unsigned-reg)
 
   (defregtn tmp unsigned-reg))
 
 ;;; If VALUE can be represented as an immediate constant, then return the
-;;; appropriate SC number, otherwise return NIL.
+;;; appropriate SC number, otherwise return NIL. Every fixnum, character
+;;; and static symbol is an immediate: i32.const takes any 32-bit value.
 (defun immediate-constant-sc (value)
   (typecase value
-    ((integer 0 0)
-     zero-sc-number)
     (null
-     (values descriptor-reg-sc-number null-offset))
+     immediate-sc-number)
     (symbol
      (if (static-symbol-p value)
          immediate-sc-number
          nil))
     ((integer #.most-negative-fixnum #.most-positive-fixnum)
-     ;; KLUDGE: This is a subset on 64-bit because we currently
-     ;; produce untagged intermediates in %LI.
-     (typecase (fixnumize value)
-       #-64-bit
-       ((signed-byte 32)
-        immediate-sc-number)
-       #+64-bit
-       ((integer #x-80000800 #x7ffff7ff)
-        immediate-sc-number)))
+     immediate-sc-number)
     (character
      immediate-sc-number)
     (structure-object
@@ -241,27 +234,25 @@
        immediate-sc-number))))
 
 (defun boxed-immediate-sc-p (sc)
-  (or (eql sc zero-sc-number)
-      (eql sc immediate-sc-number)))
+  (eql sc immediate-sc-number))
 
-;;;; Function Call Parameters
 
-;;; Offsets of special stack frame locations
+;;; Offsets of special stack frame locations. There is no return address
+;;; on this target; RA-SAVE-OFFSET holds the caller's return-point
+;;; descriptor and CODE-SAVE-OFFSET the caller's code object, which
+;;; together replace the LRA of other targets for the debugger.
 (defconstant ocfp-save-offset 0)
 (defconstant ra-save-offset 1)
-(defconstant nfp-save-offset 2)
+(defconstant code-save-offset 2)
+(defconstant nfp-save-offset 3)
 
 (define-load-time-global *register-arg-tns*
   (let ((drsc (sc-or-lose 'descriptor-reg)))
     (flet ((make (n) (make-random-tn drsc n)))
       (mapcar #'make *register-arg-offsets*))))
 
-#+sb-thread
-(defparameter thread-base-tn
-  (make-random-tn (sc-or-lose 'unsigned-reg) thread-offset))
-
-;;; This is used by the debugger.  Our calling convention for
-;;; unknown-values-return does not involve manipulating return
+;;; This is used by the debugger. Our calling convention for
+;;; unknown-values return does not involve manipulating return
 ;;; addresses.
 (defconstant single-value-return-byte-offset 0)
 
@@ -283,8 +274,3 @@
 (defun primitive-type-indirect-cell-type (ptype)
   (declare (ignore ptype))
   nil)
-
-#+sb-thread
-(progn
-  (defconstant pseudo-atomic-flag (ash list-pointer-lowtag 0))
-  (defconstant pseudo-atomic-interrupted-flag (ash list-pointer-lowtag 16)))

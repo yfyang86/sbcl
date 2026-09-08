@@ -1,0 +1,17 @@
+== configuration
+PASS  make-config accepts --arch=wasm
+PASS  features: :wasm :soft-card-marks :gencgc, no :64-bit
+== make-host-1 (cross-compiler and genesis headers)
+PASS  make-host-1 succeeds for the wasm backend
+PASS  sbcl.h: LISP_FEATURE_WASM, 32-bit words
+PASS  sbcl.h: soft card marks, 32 cards per 32 KiB page
+PASS  sbcl.h: static space at 17 MiB, 4-byte linkage entries
+PASS  no riscv instruction names remain in the backend
+== crossbuild-runner pass-1
+PASS  crossbuild pass-1 builds obj/xbuild/wasm/xc.core
+== level 0
+PASS  level-0: 10 checks, all modules validate and run
+PASS  level-0 covers every module writer section kind
+PASS  level-0 exercised exception handling and tail calls under wasmtime
+
+passed=11 failed=0
