@@ -12,3 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 wasmtime.workspace = true
+
+[[bin]]
+name = "load-core"
+path = "src/bin/load-core.rs"

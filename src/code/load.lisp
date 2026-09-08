@@ -1212,6 +1212,15 @@
 (define-fop 22 (fop-assembler-code)
   (error "cannot load assembler code except at cold load"))
 
+;;; The Wasm functions of the code object on top of the stack follow in
+;;; the stream (func-asm.lisp, SERIALIZE-WASM-CODE); the code object stays.
+#+wasm
+(define-fop 26 :not-host (fop-wasm-code ((:operands length) code))
+  (let ((octets (make-array length :element-type '(unsigned-byte 8))))
+    (read-n-bytes (fasl-input-stream) octets 0 length)
+    (sb-vm::wasm-install-code code octets)
+    code))
+
 ;;;; fops for debug info
 
 (define-fop 124 (fop-note-partial-source-info (namestring created plist) nil)

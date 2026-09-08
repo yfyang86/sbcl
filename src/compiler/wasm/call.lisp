@@ -131,7 +131,12 @@
 (define-vop (xep-allocate-frame)
   (:info start-lab)
   (:generator 1
+    ;; the simple-fun header, aligned as on every other target: the entry
+    ;; label points at it, the executable code starts after it
+    (emit-alignment n-lowtag-bits)
     (emit-label start-lab)
+    (inst simple-fun-header-word)
+    (inst .skip (* (1- simple-fun-insts-offset) n-word-bytes))
     (store-reg code-tn
       (load-reg code-tn)
       (load-reg code-tn)

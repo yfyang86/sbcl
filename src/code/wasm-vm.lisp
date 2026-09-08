@@ -91,3 +91,13 @@
 (defun context-call-function (context function &optional arg-count)
   (declare (ignore context function arg-count))
   (style-warn "Unimplemented."))
+
+;;;; Code loaded at run time
+;;;;
+;;;; A fasl carries the Wasm functions of each code component after the
+;;;; code object (FOP-WASM-CODE). Instantiating them as a module of their
+;;;; own needs the host's instantiate import, which the runtime provides
+;;;; from Sprint 6 on.
+(defun wasm-install-code (code octets)
+  (declare (ignore octets))
+  (error "loading Wasm code at run time is not implemented yet: ~S" code))

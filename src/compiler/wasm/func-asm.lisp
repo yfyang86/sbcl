@@ -43,6 +43,10 @@
 ;;; the imports: memory, table, the globals THREAD and TABLE_BASE, the tag
 (defconstant +global-thread+ 0)
 (defconstant +global-table-base+ 1)
+;;; the module's own mutable global through which a call from another
+;;; function of the same component enters at an arm other than the
+;;; function's start: 0 (the default) means the start, else arm + 1
+(defconstant +global-entry-arm+ 2)
 ;;; the runtime entry points (+IMPORT-...+ in macros.lisp), which precede
 ;;; the assembly routine imports in the function index space
 (defconstant sb-vm::+n-runtime-imports+ 4)
@@ -126,12 +130,34 @@
   (locals '())
   ;; (body-offset params results) of every :function-type fixup, which
   ;; the module writer resolves to a type index
-  (type-patches '()))
+  (type-patches '())
+  ;; (body-offset kind operand) for every five-byte immediate that a
+  ;; loader has to patch when the function is installed in a module other
+  ;; than the one it was lowered for (see SERIALIZE-WASM-CODE):
+  ;;   :function        operand: index of a function of the same component
+  ;;   :assembly-routine  operand: the routine's name (a string)
+  ;;   :type            operand: (params results)
+  ;;   :assembly-routine-entry, :foreign, :foreign-dataref: a name (string)
+  ;;   :coverage        operand: a coverage index
+  (patches '())
+  ;; a name given explicitly (functions read back from a blob)
+  (name-slot nil)
+  ;; set by ASSIGN-ARMS before emission: the code ranges (chunks plus the
+  ;; elsewhere chunks the function reaches), the control notes in them,
+  ;; the arms, and the arm index of the start
+  (ranges '())
+  (notes '())
+  (arms '())
+  (start-arm 0 :type index)
+  ;; true when another function enters this one at an arm other than
+  ;; its start, through +GLOBAL-ENTRY-ARM+
+  (entry-arm-p nil))
 
 (defun wasm-function-name (function)
   (let ((entry (wasm-function-entry function))
         (env (wasm-function-env function)))
-    (cond (entry (princ-to-string (sb-c::entry-info-name entry)))
+    (cond ((wasm-function-name-slot function))
+          (entry (princ-to-string (sb-c::entry-info-name entry)))
           ((symbolp env) (string-downcase env))
           (t (format nil "lambda~D" (wasm-function-index function))))))
 
@@ -157,6 +183,8 @@ Each element is a tag; :loop marks the dispatch loop.")
   asm-patches
   ;; position -> (params results) for :function-type fixups
   type-fixups
+  ;; position -> (flavor . name) for every other fixup the loader patches
+  fixups
   ;; the function being lowered
   function)
 
@@ -169,20 +197,46 @@ the current function: a function starting there other than the current
 one, preferring one that has code there (an environment whose first
 block is empty starts at the same position as the next one)."
   (let ((current (fctx-function ctx))
-        (candidates (remove position (fctx-functions ctx)
-                            :key #'wasm-function-start :test-not #'=)))
+        (candidates (remove-if-not
+                     (lambda (f) (find position (wasm-function-ranges f) :key #'car))
+                     (fctx-functions ctx))))
     (flet ((code-at-p (function)
              (some (lambda (chunk) (< (car chunk) (cdr chunk)))
                    (wasm-function-chunks function))))
       (or (find-if (lambda (f) (and (not (eq f current)) (code-at-p f))) candidates)
           (find-if (lambda (f) (not (eq f current))) candidates)))))
 
-(defun function-of-label (ctx label)
-  (let* ((position (sb-assem:label-position label))
-         (function (function-starting-at ctx position)))
-    (unless function
-      (error "label at ~D is not the start of a function" position))
-    (+ (fctx-function-base ctx) (wasm-function-index function))))
+(defun function-containing (ctx position)
+  "The function whose code ranges contain POSITION (the position of a
+label another function branches to)."
+  (or (find-if (lambda (f)
+                 (some (lambda (r) (range-contains-p r position)) (wasm-function-ranges f)))
+               (fctx-functions ctx))
+      ;; an empty function's range is (p . p)
+      (find-if (lambda (f) (find position (wasm-function-ranges f) :key #'car))
+               (fctx-functions ctx))
+      (error "no function contains position ~D" position)))
+
+(defun emit-cross-ref (buffer ctx position opcode)
+  "A call (OPCODE #x10) or return_call (#x12) into the function
+containing POSITION, entering at the arm that starts there: when that is
+not the callee's start arm, the arm is passed through +GLOBAL-ENTRY-ARM+."
+  (let* ((callee (function-containing ctx position))
+         (arm (arm-at (wasm-function-arms callee) position)))
+    (unless (= (arm-index arm) (wasm-function-start-arm callee))
+      (setf (wasm-function-entry-arm-p callee) t)
+      (buffer-byte buffer #x41) (buffer-sleb128 buffer (1+ (arm-index arm)))   ; i32.const
+      (buffer-byte buffer #x24) (buffer-uleb128 buffer +global-entry-arm+))    ; global.set
+    (buffer-byte buffer opcode)
+    (emit-function-ref buffer ctx callee)))
+
+(defun emit-function-ref (buffer ctx function)
+  "The module index of FUNCTION (of the same component) as a fixed
+five-byte immediate, recorded as a :FUNCTION patch of the current
+function so that a loader can renumber it."
+  (push (list (fill-pointer buffer) :function (wasm-function-index function))
+        (wasm-function-patches (fctx-function ctx)))
+  (emit-fixed-uleb128-32 buffer (+ (fctx-function-base ctx) (wasm-function-index function))))
 
 (defun emit-set-pc-and-loop (buffer pc-local arm-index)
   (buffer-byte buffer #x41) (buffer-sleb128 buffer arm-index) ; i32.const arm
@@ -210,14 +264,16 @@ block is empty starts at the same position as the next one)."
                   (emit-set-pc-and-loop buffer pc-local (target-arm label)))
                  (t
                   ;; a tail local call into another function
-                  (buffer-byte buffer #x12)                          ; return_call
-                  (buffer-uleb128 buffer (function-of-label ctx label))))))
+                  (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12)))))
         (:jump-if
          ;; condition is on the operand stack
-         (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+) ; if
-         (let ((*open* (cons :if *open*)))
-           (emit-set-pc-and-loop buffer pc-local (target-arm (control-note-labels note))))
-         (buffer-byte buffer #x0B))                                       ; end
+         (let ((label (control-note-labels note)))
+           (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+) ; if
+           (let ((*open* (cons :if *open*)))
+             (if (local-target-p label)
+                 (emit-set-pc-and-loop buffer pc-local (target-arm label))
+                 (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12)))
+           (buffer-byte buffer #x0B)))                                    ; end
         (:jump-table
          ;; index is on the operand stack: one block per case plus one for
          ;; the default; br_table picks the block, whose code sets $pc. A
@@ -245,11 +301,9 @@ block is empty starts at the same position as the next one)."
                       (pop *open*)
                       (emit-set-pc-and-loop buffer pc-local (target-arm label))))))
         (:call-label
-         (buffer-byte buffer #x10)                                        ; call
-         (buffer-uleb128 buffer (function-of-label ctx (control-note-labels note))))
+         (emit-cross-ref buffer ctx (sb-assem:label-position (control-note-labels note)) #x10))
         (:tail-call-label
-         (buffer-byte buffer #x12)                                        ; return_call
-         (buffer-uleb128 buffer (function-of-label ctx (control-note-labels note))))
+         (emit-cross-ref buffer ctx (sb-assem:label-position (control-note-labels note)) #x12))
         (:label-index
          (buffer-byte buffer #x41)                                        ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
@@ -287,29 +341,66 @@ belongs to another function. Either it is that function's first block
 with a return or a jump and this is not reached."
   (let ((next (function-continuing-at ctx (arm-end arm))))
     (cond (next
-           (buffer-byte buffer #x12)                                      ; return_call
-           (buffer-uleb128 buffer (+ (fctx-function-base ctx) (wasm-function-index next))))
+           (emit-cross-ref buffer ctx (arm-end arm) #x12))
           (t
            (buffer-byte buffer #x00)))))                                  ; unreachable
 
 (defun emit-arm-bytes (buffer ctx from to)
   "Copy segment bytes [FROM, TO), patching assembly-routine fixups and
-recording the function-type fixups by their offset in the body."
+recording every fixup (a five-byte immediate) by its offset in the body."
   (let ((bytes (fctx-bytes ctx))
         (position from))
     (loop while (< position to)
           do (let ((patch (cdr (assoc position (fctx-asm-patches ctx))))
-                   (type (cdr (assoc position (fctx-type-fixups ctx)))))
+                   (type (cdr (assoc position (fctx-type-fixups ctx))))
+                   (fixup (cdr (assoc position (fctx-fixups ctx))))
+                   (function (fctx-function ctx)))
                (cond (patch
-                      (emit-fixed-uleb128-32 buffer patch)
+                      (push (list (fill-pointer buffer) :assembly-routine (string (cdr patch)))
+                            (wasm-function-patches function))
+                      (emit-fixed-uleb128-32 buffer (car patch))
                       (incf position 5))
                      (type
                       (push (list (fill-pointer buffer) (first type) (second type))
-                            (wasm-function-type-patches (fctx-function ctx)))
+                            (wasm-function-type-patches function))
+                      (push (list (fill-pointer buffer) :type type)
+                            (wasm-function-patches function))
+                      (loop repeat 5 do (buffer-byte buffer (aref bytes position)) (incf position)))
+                     (fixup
+                      (push (list (fill-pointer buffer) (car fixup) (cdr fixup))
+                            (wasm-function-patches function))
                       (loop repeat 5 do (buffer-byte buffer (aref bytes position)) (incf position)))
                      (t
                       (buffer-byte buffer (aref bytes position))
                       (incf position)))))))
+
+(defun loader-fixups (segment)
+  "Position -> (flavor . operand) for the fixups a loader patches in the
+function bodies, other than assembly-routine calls and function types:
+the operand is a name string, or a coverage index."
+  (loop for note in (sb-assem::segment-fixup-notes segment)
+        for fixup = (sb-c::fixup-note-fixup note)
+        for flavor = (sb-c::fixup-flavor fixup)
+        when (member flavor '(:assembly-routine-entry :foreign :foreign-dataref
+                              :code-coverage-index :layout-id))
+        collect (cons (sb-c::fixup-note-position note)
+                      (cons (if (eq flavor :code-coverage-index) :coverage flavor)
+                            (let ((name (sb-c::fixup-name fixup)))
+                              (case flavor
+                                (:code-coverage-index name)
+                                ;; the layout's classoid name, as PACKAGE::NAME
+                                (:layout-id
+                                 ;; the host's SYMBOL-PACKAGE and PACKAGE-NAME: this
+                                 ;; file is compiled for the cross-compiler, whose
+                                 ;; CL package hides them
+                                 (let* ((symbol (sb-kernel::layout-classoid-name name))
+                                        (package (funcall (intern "SYMBOL-PACKAGE" "COMMON-LISP")
+                                                          symbol)))
+                                   (concatenate 'string
+                                                (funcall (intern "PACKAGE-NAME" "COMMON-LISP")
+                                                         package)
+                                                "::" (symbol-name symbol))))
+                                (t (string name))))))))
 
 (defun function-type-fixups (segment)
   "Position -> (params results) for every :function-type fixup."
@@ -328,18 +419,32 @@ recording the function-type fixups by their offset in the body."
                  (setf index (ash index -7)))
                (setf (aref body (+ offset 4)) (logand index #x0F))))))
 
-(defun lower-function-body (ctx ranges notes &key (params '()) (locals '()))
-  "Lower the code in RANGES ((start . end) ...) with the control NOTES
-inside them into a Wasm function body. Returns the body octets (ending
-with END) and the local declarations ((count . type) ...)."
-  (let* ((target-positions (loop for note in notes
-                                 append (mapcar #'sb-assem:label-position (note-targets note))))
-         ;; a jump to another function's start is not a local target
+(defun assign-arms (function ranges notes component-notes)
+  "Record FUNCTION's code RANGES and the NOTES in them, and split the
+ranges into arms at every label any note of the component (not only its
+own) branches to, plus the function's start."
+  (let* ((targets (loop for note in component-notes
+                        append (mapcar #'sb-assem:label-position (note-targets note))))
          (local-targets (remove-if-not
                          (lambda (p) (some (lambda (r) (or (range-contains-p r p) (= p (cdr r))))
                                            ranges))
-                         target-positions))
-         (arms (compute-arms ranges local-targets))
+                         targets))
+         (arms (compute-arms ranges (cons (wasm-function-start function) local-targets))))
+    (setf (wasm-function-ranges function) ranges
+          (wasm-function-notes function) notes
+          (wasm-function-arms function) arms
+          (wasm-function-start-arm function)
+          (arm-index (arm-at arms (wasm-function-start function))))
+    function))
+
+(defun lower-function-body (ctx &key (params '()) (locals '()))
+  "Lower the function of CTX (its ranges, notes and arms assigned by
+ASSIGN-ARMS) into a Wasm function body. Returns the body octets (ending
+with END) and the local declarations ((count . type) ...)."
+  (let* ((function (fctx-function ctx))
+         (notes (wasm-function-notes function))
+         (arms (wasm-function-arms function))
+         (start-arm (wasm-function-start-arm function))
          (n (length arms))
          ;; the three scratch locals VOPs may use (+SCRATCH-I32-LOCAL+ and
          ;; friends in macros.lisp), then $pc
@@ -351,11 +456,10 @@ with END) and the local declarations ((count . type) ...)."
                             (cons (if nlx-p 3 2) :i32) locals))
          (buffer (make-octet-buffer)))
     (setf (fctx-arms ctx) arms
-          (fctx-pc-local ctx) pc-local)
-    (dolist (p target-positions)
-      (unless (or (member p local-targets)
-                  (function-starting-at ctx p))
-        (error "branch target at ~D is outside the function" p)))
+          (fctx-pc-local ctx) pc-local
+          ;; a body may be lowered again (see LOWER-FUNCTIONS)
+          (wasm-function-patches function) '()
+          (wasm-function-type-patches function) '())
     ;; a function with non-local entries remembers its frame in $fp: the
     ;; CFP register belongs to whoever was running when the unwind began
     (when nlx-p
@@ -363,6 +467,23 @@ with END) and the local declarations ((count . type) ...)."
       (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load
       (buffer-uleb128 buffer (* sb-vm::cfp-offset sb-vm::n-word-bytes))
       (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ pc-local 2)))   ; local.set $fp
+    ;; the arm to start at: $pc is 0 unless the start is another arm or a
+    ;; caller of the same component chose one through the entry-arm global
+    (cond ((wasm-function-entry-arm-p function)
+           (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-entry-arm+) ; global.get
+           (buffer-byte buffer #x04) (buffer-byte buffer #x7F)                 ; if (result i32)
+           (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-entry-arm+)
+           (buffer-byte buffer #x41) (buffer-sleb128 buffer 1)
+           (buffer-byte buffer #x6B)                                           ; i32.sub
+           (buffer-byte buffer #x05)                                           ; else
+           (buffer-byte buffer #x41) (buffer-sleb128 buffer start-arm)
+           (buffer-byte buffer #x0B)                                           ; end
+           (buffer-byte buffer #x21) (buffer-uleb128 buffer pc-local)          ; local.set $pc
+           (buffer-byte buffer #x41) (buffer-sleb128 buffer 0)
+           (buffer-byte buffer #x24) (buffer-uleb128 buffer +global-entry-arm+)) ; global.set
+          ((/= start-arm 0)
+           (buffer-byte buffer #x41) (buffer-sleb128 buffer start-arm)
+           (buffer-byte buffer #x21) (buffer-uleb128 buffer pc-local)))
     ;; loop $L [block $H try_table], then the arm blocks, outermost first
     (buffer-byte buffer #x03) (buffer-byte buffer +empty-block-type+)
     (let ((*open* (list :loop)))
@@ -424,7 +545,8 @@ with END) and the local declarations ((count . type) ...)."
                          :function function))
          (notes (remove-if-not (lambda (note) (range-contains-p (cons start end) (control-note-posn note)))
                                (segment-control-notes segment))))
-    (lower-function-body ctx (list (cons start end)) notes :params params :locals locals)))
+    (assign-arms function (list (cons start end)) notes notes)
+    (lower-function-body ctx :params params :locals locals)))
 
 ;;;; Codegen interface
 ;;;;
@@ -490,9 +612,10 @@ routine is defined in the segment itself."
         collect (let* ((name (sb-c::fixup-name fixup))
                        (local (find name functions :key #'wasm-function-env)))
                   (cons (sb-c::fixup-note-position note)
-                        (if local
-                            (+ base (length routines) (wasm-function-index local))
-                            (+ base (position name routines)))))))
+                        (cons (if local
+                                  (+ base (length routines) (wasm-function-index local))
+                                  (+ base (position name routines)))
+                              name)))))
 
 (defun elsewhere-chunks (segment asmstream)
   (let* ((elsewhere (sb-assem:label-position (sb-assem::asmstream-elsewhere-label asmstream)))
@@ -517,9 +640,11 @@ chunks), returning them."
                          :asm-patches (assembly-routine-patches
                                        segment asm-routines sb-vm::+n-runtime-imports+
                                        functions)
-                         :type-fixups (function-type-fixups segment))))
+                         :type-fixups (function-type-fixups segment)
+                         :fixups (loader-fixups segment))))
+    ;; ranges, notes and arms of every function first: a cross-function
+    ;; branch needs the callee's arms
     (dolist (function functions)
-      (setf (fctx-function ctx) function)
       (let* ((own-notes (remove-if-not
                          (lambda (note)
                            (some (lambda (chunk) (range-contains-p chunk (control-note-posn note)))
@@ -531,9 +656,25 @@ chunks), returning them."
                          (lambda (note)
                            (some (lambda (r) (range-contains-p r (control-note-posn note))) ranges))
                          notes)))
-        (multiple-value-bind (body locals) (lower-function-body ctx ranges all-notes)
-          (setf (wasm-function-body function) body
-                (wasm-function-locals function) locals))))
+        (assign-arms function ranges all-notes notes)))
+    ;; then the bodies: a body that enters another function at an arm
+    ;; other than its start marks the callee (ENTRY-ARM-P), whose prologue
+    ;; must then read the entry-arm global, so callees are lowered after
+    ;; their callers when a body has to be redone
+    (let ((pending (copy-list functions)))
+      (loop while pending
+            do (let ((function (pop pending))
+                     (marked (remove-if-not #'wasm-function-entry-arm-p functions)))
+                 (setf (fctx-function ctx) function)
+                 (multiple-value-bind (body locals) (lower-function-body ctx)
+                   (setf (wasm-function-body function) body
+                         (wasm-function-locals function) locals))
+                 ;; a function marked by this body that was already lowered
+                 ;; without the prologue is lowered again
+                 (dolist (f (remove-if-not #'wasm-function-entry-arm-p functions))
+                   (when (and (not (member f marked)) (wasm-function-body f)
+                              (not (member f pending)))
+                     (setf pending (append pending (list f))))))))
     functions))
 
 (defun wasm-component-functions (ir2-component segment asmstream block-labels)
@@ -569,17 +710,37 @@ of their first block. Returns (values functions assembly-routine-names)."
             for i from 0
             do (setf (wasm-function-index function) i
                      (wasm-function-chunks function) (nreverse (wasm-function-chunks function))))
+      ;; an external entry point starts after its simple-fun header,
+      ;; wherever that block was emitted within the environment; the
+      ;; header (and the alignment padding before it) is data, not code
+      (dolist (entry entries)
+        (let* ((label (sb-assem:label-position (sb-c::entry-info-offset entry)))
+               (position (+ label (* sb-vm:simple-fun-insts-offset sb-vm:n-word-bytes)))
+               (function (find-if (lambda (f)
+                                    (some (lambda (chunk) (or (range-contains-p chunk label)
+                                                              (= (car chunk) label)))
+                                          (wasm-function-chunks f)))
+                                  functions)))
+          (when function
+            (setf (wasm-function-entry function) entry
+                  (wasm-function-start function) position)
+            (dolist (chunk (wasm-function-chunks function))
+              (when (and (<= (car chunk) label) (< (car chunk) position))
+                (setf (car chunk) (min position (cdr chunk))))))))
       (let ((asm-routines (segment-assembly-routines segment)))
         (values (lower-functions functions segment (segment-control-notes segment) chunks asm-routines)
                 asm-routines)))))
 
 (defun sb-vm::wasm-note-component (ir2-component segment asmstream block-labels)
+  "Lower the component; returns its Wasm code blob (SERIALIZE-WASM-CODE)
+for the fasl dumper, after handing the functions to *WASM-COMPONENT-HOOK*."
   (let ((unimplemented sb-vm::*wasm-component-unimplemented*))
     (setf sb-vm::*wasm-component-unimplemented* '())
-    (when *wasm-component-hook*
-      (multiple-value-bind (functions asm-routines)
-          (wasm-component-functions ir2-component segment asmstream block-labels)
-        (funcall *wasm-component-hook* ir2-component functions asm-routines unimplemented)))))
+    (multiple-value-bind (functions asm-routines)
+        (wasm-component-functions ir2-component segment asmstream block-labels)
+      (when *wasm-component-hook*
+        (funcall *wasm-component-hook* ir2-component functions asm-routines unimplemented))
+      (serialize-wasm-code functions (sb-c::ir2-component-entries ir2-component)))))
 
 ;;;; Assembly routines
 ;;;;
@@ -591,8 +752,9 @@ of their first block. Returns (values functions assembly-routine-names)."
 (defvar *wasm-assembly-hook* nil)
 
 (defun sb-vm::wasm-note-assembly-routines (segment entry-points)
-  "ENTRY-POINTS is the assembler's list of (name label offset)."
-  (when *wasm-assembly-hook*
+  "ENTRY-POINTS is the assembler's list of (name label offset). Returns
+the routines' Wasm code blob for the fasl dumper."
+  (progn
     (let* (;; the code ends at the end-of-text label ASSEMBLE-SECTIONS
            ;; emits before the trailer (whose bytes are not code)
            (end (reduce #'max
@@ -609,9 +771,10 @@ of their first block. Returns (values functions assembly-routine-names)."
                                      :env name :index i :start position
                                      :chunks (list (cons position (if rest (car (first rest)) end))))))
            (asm-routines (segment-assembly-routines segment (mapcar #'cdr points))))
-      (funcall *wasm-assembly-hook*
-               (lower-functions functions segment (segment-control-notes segment) '() asm-routines)
-               asm-routines))))
+      (lower-functions functions segment (segment-control-notes segment) '() asm-routines)
+      (when *wasm-assembly-hook*
+        (funcall *wasm-assembly-hook* functions asm-routines))
+      (serialize-wasm-code functions '()))))
 
 ;;;; Modules for compiled code
 ;;;;
@@ -636,6 +799,9 @@ of their first block. Returns (values functions assembly-routine-names)."
     (wasm-import-function m "env" "alloc" '(:i32) '(:i32))
     (wasm-import-function m "env" "alloc_list" '(:i32) '(:i32))
     (wasm-import-function m "env" "pending_interrupt" '() '())
+    ;; the entry-arm global (+GLOBAL-ENTRY-ARM+), after the two imported globals
+    (let ((index (wasm-add-global m :i32 t (i32-const-expression 0))))
+      (aver (= index +global-entry-arm+)))
     (dolist (name asm-routines)
       (wasm-import-function m "lisp" (string-downcase name)
                             +lisp-function-params+ +lisp-function-results+))
@@ -656,3 +822,138 @@ EXPORT, also export each by name."
                                                   :export (and export (string-downcase name))))))
     (wasm-add-elements module 0 (global-get-expression +global-table-base+) indices)
     indices))
+
+
+;;;; Code blobs
+;;;;
+;;;; A fasl carries, after each code component (and after the assembler
+;;;; routines), the component's lowered Wasm functions in this format,
+;;;; which genesis reads to build the core module and the loader reads
+;;;; to build a module of its own (doc/wasm-port/02-design.md, 2.2):
+;;;;
+;;;;   "WC" u8 version
+;;;;   uleb n-functions, then per function:
+;;;;     name (uleb length, bytes)
+;;;;     uleb n-local-declarations, then per declaration: uleb count, valtype
+;;;;     uleb body-length, body
+;;;;     uleb n-patches, then per patch: u8 kind, uleb body-offset, operand
+;;;;       kind 0 :function              uleb function index (in this blob)
+;;;;       kind 1 :assembly-routine      name
+;;;;       kind 2 :type                  uleb n, valtypes, uleb n, valtypes
+;;;;       kind 3 :assembly-routine-entry name
+;;;;       kind 4 :foreign               name
+;;;;       kind 5 :foreign-dataref       name
+;;;;       kind 6 :coverage              uleb index
+;;;;       kind 7 :layout-id             the layout's classoid name, PACKAGE::NAME
+;;;;   uleb n-entries, then per simple-fun (in code object order): uleb
+;;;;     index of its function
+;;;;
+;;;; Every patched immediate is a fixed five-byte LEB128: unsigned for
+;;;; kinds 0-2 (call, return_call, call_indirect operands), signed for
+;;;; kinds 3-6 (i32.const).
+
+(defconstant +wasm-code-version+ 1)
+
+(defparameter *patch-kinds*
+  '((:function . 0) (:assembly-routine . 1) (:type . 2) (:assembly-routine-entry . 3)
+    (:foreign . 4) (:foreign-dataref . 5) (:coverage . 6) (:layout-id . 7)))
+
+(defun patch-kind-signed-p (kind)
+  (member kind '(:assembly-routine-entry :foreign :foreign-dataref :coverage :layout-id)))
+
+(defun patch-fixed-leb128 (body offset value signed)
+  "Overwrite the five-byte LEB128 immediate at OFFSET of BODY with VALUE."
+  (let ((value (if signed
+                   (if (>= value (ash 1 31)) (- value (ash 1 32)) value)
+                   (logand value #xFFFFFFFF))))
+    (dotimes (i 4)
+      (setf (aref body (+ offset i)) (logior (logand value #x7F) #x80))
+      (setf value (ash value -7)))
+    (setf (aref body (+ offset 4)) (logand value #x7F))))
+
+(defun serialize-wasm-code (functions entries)
+  "The blob for FUNCTIONS (WASM-FUNCTION structs, in index order);
+ENTRIES are the component's entry-infos in code object order."
+  (let ((b (make-octet-buffer)))
+    (buffer-byte b (char-code #\W)) (buffer-byte b (char-code #\C))
+    (buffer-byte b +wasm-code-version+)
+    (buffer-uleb128 b (length functions))
+    (dolist (f functions)
+      (buffer-name b (wasm-function-name f))
+      (buffer-uleb128 b (length (wasm-function-locals f)))
+      (loop for (count . type) in (wasm-function-locals f)
+            do (buffer-uleb128 b count) (buffer-valtype b type))
+      (buffer-uleb128 b (length (wasm-function-body f)))
+      (buffer-octets b (wasm-function-body f))
+      (let ((patches (reverse (wasm-function-patches f))))
+        (buffer-uleb128 b (length patches))
+        (loop for (offset kind operand) in patches
+              do (buffer-byte b (cdr (assoc kind *patch-kinds*)))
+                 (buffer-uleb128 b offset)
+                 (ecase kind
+                   ((:function :coverage) (buffer-uleb128 b operand))
+                   ((:assembly-routine :assembly-routine-entry :foreign :foreign-dataref :layout-id)
+                    (buffer-name b operand))
+                   (:type
+                    (destructuring-bind (params results) operand
+                      (buffer-uleb128 b (length params))
+                      (dolist (v params) (buffer-valtype b v))
+                      (buffer-uleb128 b (length results))
+                      (dolist (v results) (buffer-valtype b v))))))))
+    (buffer-uleb128 b (length entries))
+    (dolist (entry entries)
+      (let ((f (find entry functions :key #'wasm-function-entry)))
+        (unless f (error "entry ~S has no function" entry))
+        (buffer-uleb128 b (wasm-function-index f))))
+    (coerce b '(simple-array (unsigned-byte 8) (*)))))
+
+(defun valtype-of-byte (byte)
+  (ecase byte (#x7F :i32) (#x7E :i64) (#x7D :f32) (#x7C :f64) (#x70 :funcref) (#x6F :externref)))
+
+(defun parse-wasm-code (octets)
+  "Read a blob back: (values functions entry-function-indices)."
+  (let ((pos 0))
+    (labels ((u8 () (prog1 (aref octets pos) (incf pos)))
+             (uleb ()
+               (let ((result 0) (shift 0))
+                 (loop (let ((byte (u8)))
+                         (setf result (logior result (ash (logand byte #x7F) shift)))
+                         (incf shift 7)
+                         (unless (logbitp 7 byte) (return result))))))
+             (name ()
+               (let* ((n (uleb))
+                      (string (make-string n)))
+                 (dotimes (i n string) (setf (char string i) (code-char (u8))))))
+             (octets (n)
+               (let ((v (make-array n :element-type '(unsigned-byte 8))))
+                 (replace v octets :start2 pos)
+                 (incf pos n)
+                 v))
+             (valtypes () (let ((n (uleb))) (loop repeat n collect (valtype-of-byte (u8))))))
+      (unless (and (= (u8) (char-code #\W)) (= (u8) (char-code #\C)) (= (u8) +wasm-code-version+))
+        (error "not a Wasm code blob"))
+      (let* ((n (uleb))
+             (functions
+               (loop for i below n
+                     collect (let* ((fname (name))
+                                    (locals (loop repeat (uleb)
+                                                  collect (let ((count (uleb)))
+                                                            (cons count (valtype-of-byte (u8))))))
+                                    (body (octets (uleb)))
+                                    (patches
+                                      (loop repeat (uleb)
+                                            collect (let* ((kind (car (rassoc (u8) *patch-kinds*)))
+                                                           (offset (uleb)))
+                                                      (list offset kind
+                                                            (ecase kind
+                                                              ((:function :coverage) (uleb))
+                                                              ((:assembly-routine :assembly-routine-entry
+                                                                :foreign :foreign-dataref :layout-id)
+                                                               (name))
+                                                              (:type (let* ((params (valtypes))
+                                                                            (results (valtypes)))
+                                                                       (list params results)))))))))
+                               (make-wasm-function :index i :name-slot fname :locals locals
+                                                   :body body :patches patches))))
+             (entries (loop repeat (uleb) collect (uleb))))
+        (values functions entries)))))

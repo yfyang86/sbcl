@@ -1276,6 +1276,7 @@
                                                (fasl-output-stream fasl-output)))
             (length (length (asm-bytes assembly))))
         (aver (= n-written length)))
+      #+wasm (dump-wasm-code (asm-wasm-code assembly) fasl-output)
 
       (let ((handle (dump-pop fasl-output)))
         (dolist (patch (patches))
@@ -1288,9 +1289,19 @@
           (dump-fop 'fop-named-constant-set fasl-output (cdr named-constant)))
         handle))))
 
+#+wasm
+(defun dump-wasm-code (octets file)
+  "Follow the code object on the fasl stack with its Wasm code blob:
+FOP-WASM-CODE reads the bytes from the stream and leaves the code object
+on the stack."
+  (declare (type (simple-array (unsigned-byte 8) (*)) octets))
+  (dump-fop 'fop-wasm-code file (length octets))
+  (write-sequence octets (fasl-output-stream file)))
+
 ;;; This is only called from assemfile, which doesn't exist in the target.
 #+sb-xc-host
-(defun dump-assembler-routines (code-segment octets fixups alloc-points routines file)
+(defun dump-assembler-routines (code-segment octets fixups alloc-points routines file
+                                &optional wasm-code)
   (let ((n-fixup-elts (dump-fixups fixups alloc-points file)))
     ;; The name -> address table has to be created before applying fixups
     ;; because a fixup may refer to an entry point in the same code component.
@@ -1309,6 +1320,8 @@
     (dump-word (length octets) file)
     (dump-word n-fixup-elts file)
     (write-segment-contents code-segment (fasl-output-stream file))
+    #+wasm (dump-wasm-code wasm-code file)
+    #-wasm (aver (null wasm-code))
     (dump-pop file)))
 
 ;;; Alter the code object referenced by CODE-HANDLE at the specified

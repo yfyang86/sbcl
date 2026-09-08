@@ -1691,5 +1691,11 @@
   (let ((b (& (>> val 1) #x7)))
    (let ((a (>> (<< val 5) 29)))
     (^ a (aref tab b))))))")
+(#(18A13E3 A1FC394 1290C2A6 14FE847C 1FE456EC)
+ "(:ASSEMBLY-ROUTINE-ENTRY :FOREIGN :FOREIGN-DATAREF :CODE-COVERAGE-INDEX :LAYOUT-ID)"
+ "((& (+ (>> val 1) (>> val 9)) 7))")
+(#(1F771E4 A1FC394 1290C2A6 14FE847C 1FE456EC)
+ "(:ASSEMBLY-ROUTINE-ENTRY :FOREIGN :FOREIGN-DATAREF :COVERAGE :LAYOUT-ID)"
+ "((& (+ (>> val 1) (>> val 9)) 7))")
 )
 ;; EOF
