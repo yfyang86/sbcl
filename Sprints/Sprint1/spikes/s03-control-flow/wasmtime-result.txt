@@ -1,0 +1,8 @@
+== structured
+fib 32: result=2178309 28 ms
+tak 24 16 8: result=9 14 ms
+loop 50000000: result=35652406 86 ms
+== dispatch
+fib 32: result=2178309 43 ms
+tak 24 16 8: result=9 20 ms
+loop 50000000: result=35652406 177 ms

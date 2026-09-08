@@ -793,6 +793,9 @@ case "$sbcl_arch" in
     ;;
   loongarch64)
     ;;
+  wasm)
+    # 32-bit first (see doc/wasm-port/02-design.md 2.1); :64-bit comes with wasm64.
+    ;;
 esac
 
 if [ "$sbcl_os" = darwin -a  "$sbcl_arch" = arm64 ]

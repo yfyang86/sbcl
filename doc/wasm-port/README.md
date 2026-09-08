@@ -69,3 +69,7 @@ plus a browser host, is an eighteen to twenty-four month program. The
 sprint plan in `04-sprints.md` is written so that each sprint has a
 runnable exit criterion and so that the two greatest unknowns (control-flow
 lowering and runtime code loading) are retired in the first quarter.
+
+## Progress
+
+Sprint records live under `Sprints/` at the repository root. `Sprints/Sprint1/` is Phase 0 (the spikes); its `verify.md` records the measured answers to the questions in `06-risks-and-spikes.md`.

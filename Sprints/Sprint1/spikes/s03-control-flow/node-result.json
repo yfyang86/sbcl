@@ -1,0 +1,27 @@
+{
+ "node": "v22.22.2",
+ "fib": {
+  "result": 2178309,
+  "structured_ms": 16.8,
+  "dispatch_ms": 28.1,
+  "ratio": 1.67
+ },
+ "tak": {
+  "result": 9,
+  "structured_ms": 5.8,
+  "dispatch_ms": 10.1,
+  "ratio": 1.74
+ },
+ "loop": {
+  "result": 35652406,
+  "structured_ms": 83.3,
+  "dispatch_ms": 169.9,
+  "ratio": 2.04
+ },
+ "scan": {
+  "result": 2400000,
+  "structured_ms": 55.7,
+  "dispatch_ms": 209.8,
+  "ratio": 3.77
+ }
+}

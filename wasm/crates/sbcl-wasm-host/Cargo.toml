@@ -1,0 +1,20 @@
+[package]
+name = "sbcl-wasm-host"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+description = "Wasmtime host for the SBCL WebAssembly port (Phase 0 spike form)"
+
+[[bin]]
+name = "sbcl-wasm"
+path = "src/main.rs"
+
+[[bin]]
+name = "spike-s01"
+path = "src/spike_s01.rs"
+
+[dependencies]
+anyhow.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+wasm-encoder.workspace = true

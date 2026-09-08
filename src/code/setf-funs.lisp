@@ -109,7 +109,7 @@
                           ((res ,sc ,primtype))
                #+arm64 (progn (inst add temp instance ,disp)
                               (inst swpal val res temp))
-               #+riscv (progn (inst addi temp instance ,disp)
+               #+(or riscv wasm) (progn (inst addi temp instance ,disp)
                               (inst amoswap res val temp :aq :rl))
                #+x86-64 (progn (move temp val)
                                (inst xchg temp (ea ,disp instance)) ; LOCK is implicit

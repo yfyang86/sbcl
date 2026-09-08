@@ -44,6 +44,7 @@
               ("ppc-thread" :big-endian :sb-thread))
     ("ppc64"  ("ppc64" :ppc64 :big-endian)) ; sb-thread is the default and required
     ("riscv"  ("riscv" :64-bit :little-endian :sb-thread))
+    ("wasm"   ("wasm" :little-endian))
     ("sparc"  ("sparc" :big-endian)
               ("sparc-sunos" :big-endian :unix :sunos :elf))
     ("x86"    ("x86" :little-endian :largefile (not :sb-eval) :sb-fasteval)

@@ -1,0 +1,8 @@
+# -*- makefile -*- S0.4 stub configuration for the wasm target built with wasi-sdk.
+ASSEM_SRC =
+ARCH_SRC = wasm-arch.c
+OS_SRC = wasm-linux-os.c
+OS_LIBS =
+LINKFLAGS +=
+DISABLE_PIE=yes
+GC_SRC = fullcgc.c gencgc.c traceroot.c

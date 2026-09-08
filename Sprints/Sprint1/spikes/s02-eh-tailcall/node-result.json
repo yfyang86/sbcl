@@ -1,0 +1,12 @@
+{
+ "node": "v22.22.2",
+ "v8": "12.4.254.21-node.39",
+ "unwind_1000_catch_at_500": 500,
+ "frames_visited": 5,
+ "unwind_1000_ms": "2.030",
+ "unwind_50_x10000_us_each": "3.30",
+ "tail_1e7": 10000000,
+ "tail_1e7_ms": "17.5",
+ "tail_indirect_1e7": 10000000,
+ "tail_indirect_1e7_ms": "34.4"
+}

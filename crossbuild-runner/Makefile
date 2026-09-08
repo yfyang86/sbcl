@@ -67,6 +67,11 @@ obj/xbuild/riscv/xc.core: $(DEPS1)
 obj/xbuild/riscv.core: obj/xbuild/riscv/xc.core
 	$(SBCL) $(ARGS) riscv < $(SCRIPT2)
 
+obj/xbuild/wasm/xc.core: $(DEPS1)
+	$(SBCL) $(ARGS) wasm wasm "(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :LITTLE-ENDIAN)" < $(SCRIPT1)
+obj/xbuild/wasm.core: obj/xbuild/wasm/xc.core
+	$(SBCL) $(ARGS) wasm < $(SCRIPT2)
+
 obj/xbuild/sparc/xc.core: $(DEPS1)
 	$(SBCL) $(ARGS) sparc sparc "(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :BIG-ENDIAN)" < $(SCRIPT1)
 obj/xbuild/sparc.core: obj/xbuild/sparc/xc.core

@@ -1,0 +1,7 @@
+runtime.wasm compile: 18.333562ms
+runtime table size before: 5
+plugin instantiate: 16.956µs; table size after: 7
+call_slot(base,21)=42 call_slot(base+1,21)=121 mem[1024]=121
+Module::new       503 bytes (40 funcs): 1.346795ms
+Module::new     51963 bytes (4000 funcs): 68.751364ms
+Module::new   5591775 bytes (400000 funcs): 7.063309718s
