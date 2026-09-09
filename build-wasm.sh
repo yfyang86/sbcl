@@ -238,7 +238,7 @@ wasm_contrib_blocklist="sb-posix sb-bsd-sockets sb-sprof sb-capstone sb-gmp sb-m
 step_contrib() {
     say "contribs (blocklist: $wasm_contrib_blocklist)"
     [ -f output/sbcl.core ] || die "no output/sbcl.core: run the warm step first"
-    SBCL_CONTRIB_BLOCKLIST="$wasm_contrib_blocklist" sh make-target-contrib.sh > "$log_dir/contrib.log" 2>&1 \
+    SBCL_WASM_CONTRIB_BLOCKLIST="$wasm_contrib_blocklist" sh make-target-contrib.sh > "$log_dir/contrib.log" 2>&1 \
         || { tail -20 "$log_dir/contrib.log"; die "contrib build failed (see $log_dir/contrib.log)"; }
     ls obj/sbcl-home/contrib/*.fasl | sed 's|.*/||' | tr '\n' ' '; echo
 }
