@@ -50,7 +50,9 @@ no test file conditionalizes on them), with the runtime and host of
 | `tests/ansi-tests.sh` (`ansi.log`, `tests/ansi-test/results.txt`) | 21,752 tests, 21,539 pass, 192 fail, 21 crashed, in 48 processes (one restart per crash, each crashed test retried once) | 20 min, plus 1 min to load the suite and save `wasm-ansi.core` |
 
 The report: `doc/wasm-port/baselines/sprint-8.txt` (`baseline.sh
-regress.log tests/ansi-test/results.txt`).
+regress.log tests/ansi-test/results.txt`). The logs (`regress.log`,
+`regress-run1.log`, `ansi.log`) are local files: `*.log` is ignored by
+the repository, and the report is the committed record.
 
 ## Timings
 
