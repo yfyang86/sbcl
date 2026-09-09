@@ -171,3 +171,15 @@ is meant to be a list of what fails, not a pass.
     the runtime stops looking for its own options at the first toplevel
     option (`--noinform`, `--no-userinit`, ...), which the script had put
     before `--core`. The scripts keep the runtime options first.
+11. **Every instance is process 42.** A quarter of the files failed in
+    the parallel run, many of them `impure-cload` files whose fasl "does
+    not exist" right after `compile-file` wrote it. WASI has no process
+    ids: wasi-libc's `getpid` answers 42 in every instance, and a saved
+    core's `*random-state*` is the same at every start, so the test
+    harness's scratch file names (`test-util`'s `scratch-file-name`:
+    the pid and ten random letters) were the same in the three
+    concurrent processes, which deleted each other's files. The host
+    now exports its own process id (`sbcl_host.process_id`) and the
+    runtime defines `getpid` on it (the definition in `wasm-arch.c`
+    takes precedence over the archive's); `sb-unix:unix-getpid` and
+    the runtime's messages report the host's pid.

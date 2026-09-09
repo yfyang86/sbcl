@@ -8,6 +8,7 @@
 //!
 //!   sbcl_host.instantiate(bytes, length, register_area, table_base) -> ok
 //!   sbcl_host.run_process(spec, length) -> exit code
+//!   sbcl_host.process_id() -> the host's process id (the runtime's getpid)
 //!
 //! which compiles the Lisp module whose bytes the runtime read into its
 //! linear memory (the core module genesis writes next to the core file),
@@ -400,6 +401,8 @@ fn main() -> Result<()> {
     wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s| &mut s.wasi)?;
     linker.func_wrap("sbcl_host", "instantiate", instantiate)?;
     linker.func_wrap("sbcl_host", "run_process", run_process)?;
+    // the host's process id, for the runtime's getpid (WASI has none)
+    linker.func_wrap("sbcl_host", "process_id", |_: Caller<'_, State>| -> i32 { std::process::id() as i32 })?;
     linker.define_unknown_imports_as_traps(&module)?;
     let mut argv = vec![path.clone()];
     argv.extend(rest);

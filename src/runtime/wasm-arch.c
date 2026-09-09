@@ -477,6 +477,19 @@ int32_t wasm_run_process(const void *spec, int32_t length)
     return sbcl_host_run_process(spec, length);
 }
 
+/* WASI has no process ids (wasi-libc's getpid answers 42 for every
+ * instance); the host's own id tells instances apart, which the tests'
+ * scratch file names rely on (concurrent instances would otherwise name,
+ * and delete, each other's files). This definition takes precedence over
+ * the archive's. */
+__attribute__((import_module("sbcl_host"), import_name("process_id")))
+int32_t sbcl_host_process_id(void);
+
+pid_t getpid(void)
+{
+    return (pid_t)sbcl_host_process_id();
+}
+
 /*** the core module (2.2) ***/
 
 __attribute__((import_module("sbcl_host"), import_name("instantiate")))
