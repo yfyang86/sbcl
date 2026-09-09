@@ -44,7 +44,13 @@ SBCL_TOP="../../"
 SBCL_HOME="$SBCL_TOP/obj/sbcl-home"
 export SBCL_HOME SBCL_TOP
 
-SBCL="$SBCL_TOP/src/runtime/sbcl --noinform --core $SBCL_TOP/output/sbcl.core \
+if [ ! -x src/runtime/sbcl ] && [ -f src/runtime/sbcl.wasm ]; then
+    # the WebAssembly port: the runtime is a module run under the host
+    SBCL_RUNTIME="$SBCL_TOP/tools-for-build/wasm-sbcl.sh"
+else
+    SBCL_RUNTIME="$SBCL_TOP/src/runtime/sbcl"
+fi
+SBCL="$SBCL_RUNTIME --noinform --core $SBCL_TOP/output/sbcl.core \
 --lose-on-corruption --disable-debugger --no-sysinit --no-userinit"
 export SBCL
 

@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# the WebAssembly port: no fork; the host runs one process per file
+if [ -f ../src/runtime/sbcl.wasm ] && [ ! -x ../src/runtime/sbcl ]; then
+    exec sh ./wasm-parallel-exec.sh "$@"
+fi
 logdir=${SBCL_PAREXEC_TMP:-$HOME}/sbcl-test-logs-$$
 echo ==== Writing logs to $logdir ====
 # FIXME: junkdir isn't getting removed

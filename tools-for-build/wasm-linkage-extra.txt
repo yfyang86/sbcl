@@ -10,3 +10,5 @@ undefined_alien_function
 # libc functions the tests call (tests/test-util.lisp) that the runtime does not
 sysconf
 setenv
+# the host's child-process import (RUN-PROGRAM)
+wasm_run_process

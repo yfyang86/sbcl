@@ -464,6 +464,19 @@ lispobj *wasm_alloc_list(sword_t nbytes)
 int wasm_exit_int(int code) { exit(code); return 0; }
 int wasm__exit_int(int code) { _exit(code); return 0; }
 
+/*** child processes (RUN-PROGRAM, src/code/run-program.lisp) ***/
+
+/* The host runs the child and waits for it: the spec is what
+ * RUN-PROGRAM builds (NUL-separated fields, see the host). Returns the
+ * exit code, 128 + signal, or -1 when the child could not be started. */
+__attribute__((import_module("sbcl_host"), import_name("run_process")))
+int32_t sbcl_host_run_process(const void *spec, int32_t length);
+
+int32_t wasm_run_process(const void *spec, int32_t length)
+{
+    return sbcl_host_run_process(spec, length);
+}
+
 /*** the core module (2.2) ***/
 
 __attribute__((import_module("sbcl_host"), import_name("instantiate")))

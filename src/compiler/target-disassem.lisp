@@ -2016,6 +2016,9 @@
   (declare (type compiled-function fun)
            (type stream stream)
            (type boolean use-labels))
+  ;; WebAssembly: the code is a function of a Wasm module, not bytes in
+  ;; the code object (src/compiler/wasm/target-insts.lisp)
+  #+wasm (return-from disassemble-fun (sb-wasm-asm::disassemble-function fun stream))
   (let* ((dstate (make-dstate))
          (segments (get-fun-segments fun)))
     (when use-labels
@@ -2103,6 +2106,17 @@
                                               (use-labels t))
   (declare (type stream stream)
            (type boolean use-labels))
+  ;; WebAssembly: each entry point is a function of a Wasm module
+  ;; (src/compiler/wasm/target-insts.lisp)
+  #+wasm
+  (return-from disassemble-code-component
+    (let ((code (etypecase thing
+                  (function (fun-code-header (%fun-fun thing)))
+                  (code-component thing))))
+      (dotimes (i (sb-kernel:code-n-entries code))
+        (let ((fun (sb-kernel:%code-entry-point code i)))
+          (format stream "~&; disassembly for ~S" (%fun-name fun))
+          (sb-wasm-asm::disassemble-function fun stream)))))
   (let* ((code-component
           (etypecase thing
            (function (fun-code-header (%fun-fun thing)))

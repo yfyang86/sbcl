@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -24,16 +25,41 @@
 #include "validate.h"
 #include "thread.h"
 
-void os_init() {}
+/* The host preopens the whole file system and passes its working
+ * directory as PWD; wasi-libc's emulated working directory (chdir) makes
+ * relative paths resolve there, as on any other target. */
+void os_init()
+{
+    const char *pwd = getenv("PWD");
+    if (pwd && *pwd && chdir(pwd) != 0)
+        fprintf(stderr, "sbcl-wasm: chdir(%s) failed\n", pwd);
+}
 
 /* The fixed spaces are addresses in this module's linear memory; they
  * are "allocated" by growing the memory (wasi-mman.c), which can not
  * fail for reasons of address space layout. */
-int os_preinit(char *argv[], char *envp[]) { return 0; }
+/* The runtime's own path (SB-EXT:*RUNTIME-PATHNAME*, and what RUN-PROGRAM
+ * runs for a child SBCL): argv[0], made absolute with the working
+ * directory the host passes as PWD (os_init). runtime.c's fallback
+ * would call realpath, which wasi-libc does not provide. */
+static char *runtime_path;
+int os_preinit(char *argv[], char *envp[])
+{
+    const char *argv0 = argv && argv[0] ? argv[0] : "sbcl.wasm";
+    const char *pwd = getenv("PWD");
+    if (argv0[0] == '/' || !pwd || !*pwd) {
+        runtime_path = strdup(argv0);
+    } else {
+        size_t n = strlen(pwd) + strlen(argv0) + 2;
+        runtime_path = malloc(n);
+        snprintf(runtime_path, n, "%s/%s", pwd, argv0);
+    }
+    return 0;
+}
 
 void os_install_interrupt_handlers(void) {}
 
-char *os_get_runtime_executable_path() { return 0; }
+char *os_get_runtime_executable_path() { return runtime_path; }
 
 int arch_os_thread_init(struct thread *thread) { return 1; }
 int arch_os_thread_cleanup(struct thread *thread) { return 1; }

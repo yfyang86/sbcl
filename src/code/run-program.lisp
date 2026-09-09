@@ -715,6 +715,7 @@ should not be used."
 ;;;
 ;;; RUN-PROGRAM returns a PROCESS structure for the process if
 ;;; the fork worked, and NIL if it did not.
+#-wasm
 (defun run-program (program args
                     &key
                       (env nil env-p)
@@ -1057,6 +1058,134 @@ Windows specific options:
 ;;; descriptor. The handler reads the data and writes it to the
 ;;; stream.
 #-win32
+
+;;;; RUN-PROGRAM on WebAssembly (WASI): the host runs the child
+;;;; (sbcl_host.run_process, wasm/crates/sbcl-wasm-host) and waits for
+;;;; it; the runtime imports it as wasm_run_process. Streams are carried
+;;;; by temporary files: an input stream is copied to one before the
+;;;; child starts, an output or error stream receives the child's file
+;;;; when it has exited. :WAIT NIL, :PTY and :STREAM are not supported
+;;;; (no pipes, no processes of our own). A program ending in ".wasm"
+;;;; (this runtime, as *RUNTIME-PATHNAME*) runs under the host.
+#+wasm
+(progn
+(define-alien-routine ("wasm_run_process" %wasm-run-process) int
+  (spec system-area-pointer) (length int))
+
+(defvar *wasm-process-counter* 0)
+
+(defun wasm-temporary-file-name (tag)
+  (format nil "~A/sbcl-run-program-~D-~D.~A"
+          (get-temporary-directory) (sb-unix:unix-getpid)
+          (incf *wasm-process-counter*) tag))
+
+(defun run-program (program args
+                    &key
+                      (env nil env-p)
+                      (environment
+                       (when env-p
+                         (unix-environment-sbcl-from-cmucl env))
+                       environment-p)
+                      (wait t)
+                      search
+                      pty
+                      input
+                      if-input-does-not-exist
+                      output
+                      (if-output-exists :error)
+                      (error :output)
+                      (if-error-exists :error)
+                      status-hook
+                      (external-format :default)
+                      directory
+                      preserve-fds)
+  "RUN-PROGRAM creates a new process specified by PROGRAM and waits for it.
+On this target (WebAssembly under the port's host) :WAIT must be true,
+:PTY and :STREAM are not supported; INPUT, OUTPUT and ERROR may be NIL,
+T, a pathname or a stream (streams are carried by temporary files)."
+  (declare (ignore search if-input-does-not-exist preserve-fds))
+  (unless wait
+    (error "RUN-PROGRAM with :WAIT NIL is not supported on this target."))
+  (when pty
+    (error "RUN-PROGRAM with :PTY is not supported on this target."))
+  (let ((temporaries '())
+        (copy-back '()))
+    (labels ((name (thing)
+               (native-namestring (if (stringp thing) thing (pathname thing))
+                                  :as-file t))
+             (input-spec (object)
+               (cond ((null object) (list "null" ""))
+                     ((eq object t) (list "inherit" ""))
+                     ((eq object :stream)
+                      (error "RUN-PROGRAM :INPUT :STREAM is not supported on this target."))
+                     ((or (stringp object) (pathnamep object))
+                      (list "file" (name object)))
+                     ((streamp object)
+                      (let ((file (wasm-temporary-file-name "in")))
+                        (push file temporaries)
+                        (with-open-file (out file :direction :output
+                                                  :if-exists :supersede
+                                                  :external-format external-format)
+                          (loop for char = (read-char object nil)
+                                while char do (write-char char out)))
+                        (list "file" file)))
+                     (t (error "RUN-PROGRAM: bad :INPUT ~S" object))))
+             (output-spec (object if-exists which)
+               (cond ((null object) (list "null" ""))
+                     ((eq object t) (list "inherit" ""))
+                     ((eq object :stream)
+                      (error "RUN-PROGRAM ~S :STREAM is not supported on this target." which))
+                     ((or (stringp object) (pathnamep object))
+                      (when (and (eq if-exists :error) (probe-file object))
+                        (error "RUN-PROGRAM: ~S file ~S exists." which object))
+                      (list (if (eq if-exists :append) "append" "file") (name object)))
+                     ((streamp object)
+                      (let ((file (wasm-temporary-file-name "out")))
+                        (push file temporaries)
+                        (push (cons file object) copy-back)
+                        (list "file" file)))
+                     (t (error "RUN-PROGRAM: bad ~S ~S" which object)))))
+      (let* ((progname (if (pathnamep program) (name program) program))
+             (argv (cons progname (mapcar (lambda (arg) (if (pathnamep arg) (name arg) arg)) args)))
+             (in (input-spec input))
+             (out (output-spec output if-output-exists :output))
+             (err (if (eq error :output)
+                      (list "output" "")
+                      (output-spec error if-error-exists :error)))
+             (env (if environment-p environment nil))
+             (fields (append (list (princ-to-string (length argv)))
+                             argv
+                             (list (if directory (name directory) ""))
+                             in out err
+                             (list (if environment-p (princ-to-string (length env)) "-1"))
+                             env))
+             (spec (string-to-octets
+                    (with-output-to-string (s)
+                      (dolist (field fields)
+                        (write-string field s)
+                        (write-char (code-char 0) s)))
+                    :external-format :utf-8))
+             (code (with-pinned-objects (spec)
+                     (%wasm-run-process (vector-sap spec) (length spec)))))
+        (unwind-protect
+             (progn
+               (when (= code -1)
+                 (error "RUN-PROGRAM: the host could not run ~S." progname))
+               (dolist (pair copy-back)
+                 (with-open-file (in (car pair) :external-format external-format)
+                   (loop for char = (read-char in nil)
+                         while char do (write-char char (cdr pair)))))
+               (let ((proc (make-process :pid (incf *wasm-process-counter*)
+                                         :%status :exited
+                                         :%exit-code code
+                                         :status-hook status-hook
+                                         :cookie (list 0))))
+                 (when status-hook (funcall status-hook proc))
+                 proc))
+          (dolist (file temporaries)
+            (ignore-errors (delete-file file))))))))
+) ; #+wasm
+
 (defun copy-descriptor-to-stream (descriptor stream cookie external-format)
   (incf (car cookie))
   (let* ((handler nil)
