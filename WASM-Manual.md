@@ -108,7 +108,7 @@ Everything goes through `build-wasm.sh`; the platform wrappers set the
 tool paths and call it:
 
 ```
-./build-wasm-linux-x86_64.sh          # Linux: toolchain host grovel lisp runtime smoke
+./build-wasm-linux-x86_64.sh          # Linux: toolchain host lisp runtime grovel smoke
 ./build-wasm-darwin-arm64.sh          # macOS: the same
 ./build-wasm.sh env                   # show the tool-chain settings
 ./build-wasm.sh --help
@@ -120,7 +120,7 @@ Steps, in the order `all` runs them:
 |---|---|---|---|
 | `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo; downloads missing pinned releases (`--no-download` to only check) | seconds | |
 | `host` | `cargo build --release -p sbcl-wasm-host` | 1–3 min first time | `wasm/target/release/sbcl-wasm` |
-| `grovel` | compiles `tools-for-build/grovel-headers.c` for wasm32-wasi and runs it under the host to regenerate the target's C constants (`crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp`) | seconds | the groveled file |
+| `grovel` | compiles `tools-for-build/grovel-headers.c` for wasm32-wasi and runs it under the host to check or regenerate the target's C constants (`crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp`); needs the genesis headers, so it runs after `lisp` (as upstream's make-target-1 does); if the constants changed it says so and the Lisp side must be rebuilt | seconds | the groveled file |
 | `lisp` | crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
 | `runtime` | `tools-for-build/wasm-build-runtime.sh`: genesis headers into `src/runtime/genesis/`, target symlinks, generated linkage table, `make sbcl.wasm` with wasi-sdk | 1 min | `src/runtime/sbcl.wasm` |
 | `smoke` | `sbcl.wasm --version` and `--help` under the host | seconds | |

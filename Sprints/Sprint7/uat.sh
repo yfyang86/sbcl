@@ -22,8 +22,6 @@ RUN=tools-for-build/wasm_run.sh
 echo "== toolchain"
 check "wasi-sdk present" "test -x $WASI_SDK/bin/clang"
 check "host builds (sbcl-wasm)" "./build-wasm.sh host > $S/host.log 2>&1 && ls wasm/target/release/sbcl-wasm"
-check "groveled constants are up to date (wasm-grovel-headers.sh reproduces the file)" \
-  "tools-for-build/wasm-grovel-headers.sh $S/groveled.lisp > $S/grovel.log 2>&1 && diff -q $S/groveled.lisp crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp && rm -f $S/groveled.lisp"
 
 echo "== Lisp side"
 if [ "${UAT_FAST:-0}" = 1 ]; then
@@ -41,6 +39,8 @@ echo "== runtime"
 if ./build-wasm.sh runtime > $S/build-runtime.log 2>&1; then ok "runtime builds: src/runtime/sbcl.wasm"; else bad "runtime build (see $S/build-runtime.log)"; fi
 check "runtime build has no warnings" "! grep -q 'warning:' $S/build-runtime.log"
 check "sbcl.wasm validates" "wasm-tools validate --features all src/runtime/sbcl.wasm"
+check "groveled constants are up to date (wasm-grovel-headers.sh reproduces the file from the genesis headers)" \
+  "tools-for-build/wasm-grovel-headers.sh $S/groveled.lisp > $S/grovel.log 2>&1 && diff -q $S/groveled.lisp crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp && rm -f $S/groveled.lisp"
 check "sbcl.wasm exports the allocation, error, interrupt and module-loading entry points" \
   "wasm-tools print src/runtime/sbcl.wasm | grep -c '(export \"\\(alloc\\|alloc_list\\|internal_error\\|pending_interrupt\\|memory\\|__indirect_function_table\\)\"' | grep -qx 6"
 
