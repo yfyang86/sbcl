@@ -35,6 +35,9 @@ elif [ -f "$SBCL_PWD/../src/runtime/sbcl.wasm" ] && [ ! -x "$SBCL_PWD/../src/run
     # the WebAssembly port: the runtime is a module run under the host
     # (tools-for-build/wasm-sbcl.sh; doc/wasm-port/05-testing.md, 5.3)
     SBCL_RUNTIME="${TEST_SBCL_RUNTIME:-$SBCL_PWD/../tools-for-build/wasm-sbcl.sh}"
+    # for the shell tests that cannot run on this target (they exit with
+    # $EXIT_TEST_WIN: shell tests have no "skipped" status)
+    SBCL_WASM=1; export SBCL_WASM
 else
     SBCL_RUNTIME="${TEST_SBCL_RUNTIME:-$SBCL_PWD/../src/runtime/sbcl}"
 fi

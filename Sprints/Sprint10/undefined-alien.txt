@@ -1,0 +1,9 @@
+;;;; SIGBUS handler not installed
+; 
+; caught STYLE-WARNING:
+;   Undefined alien: "no_such_function_xyz"
+; 
+; compilation unit finished
+;   caught 1 STYLE-WARNING condition
+
+(:UNDEFINED "no_such_function_xyz") 

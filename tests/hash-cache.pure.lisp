@@ -1,4 +1,5 @@
-(with-test (:name (:hash-cache :interrupt))
+(with-test (:name (:hash-cache :interrupt)
+            :skipped-on :wasm) ; no-signals: setitimer
   (let* ((type1 (random-type 500))
          (type2 (random-type 500))
          (wanted (subtypep type1 type2)))

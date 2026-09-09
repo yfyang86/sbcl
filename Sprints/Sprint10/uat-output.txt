@@ -1,0 +1,32 @@
+== toolchain and build
+PASS  wasi-sdk present
+PASS  host builds (sbcl-wasm) and runs the module on its own thread
+PASS  build products present (fast mode)
+PASS  the linkage table maps undefined functions to the guard and has the stack helpers
+== the fixed classes
+PASS  an error branch to the first elsewhere chunk lands (the empty-arm unreachable)
+PASS  an undefined alien of a non-void signature signals undefined-alien-function-error with its name
+PASS  sleep, machine-instance, tmpfile and the user database stubs
+PASS  the C shadow stack pointer is where it was after 20,000 errors caught by handler-case
+PASS  a constant bit index at the top of a word compiles and stores
+PASS  a core saved under another name gets its module and restarts
+PASS  a runaway recursion is a trap, not a host abort
+== triage, tags, expected list
+PASS  triage.md classifies every file of the first baseline
+PASS  the unsupported tests carry :skipped-on :wasm tags and file skips with reasons
+PASS  the #+wasm ANSI expected entries and the driver's comparison
+== the suites and the second baseline
+PASS  the regression run completed (suites skipped: Sprints/Sprint10/regress.log)
+PASS  the ANSI run completed (suites skipped: Sprints/Sprint10/ansi.log)
+PASS  the second baseline report is written
+PASS  fewer files fail than in the first baseline
+PASS  no regression file dies of a trap the sprint fixed (unreachable, indirect call type mismatch)
+== regressions (Sprint 9)
+PASS  compile-file, load and disassemble
+PASS  (require :sb-md5)
+PASS  run-program through the host
+== regressions (levels 0 and 1)
+PASS  level-0: 16 checks
+PASS  level-1: level1: passed=444 failed=0
+
+passed=24 failed=0

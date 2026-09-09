@@ -19,3 +19,42 @@ environ data
 prepare_readonly_space
 verify_heap
 move_rospace_to_dynamic
+# libc functions the test suite calls
+strdup
+strcat
+strlen
+bsearch
+qsort
+# runtime functions the test suite calls
+gc_heapsort_uwords
+count_generation_pages
+gc_dispose_private_pages
+gc_private_cons
+gc_private_free
+hopscotch_create
+hopscotch_destroy
+hopscotch_get
+hopscotch_insert
+hopscotch_log_stats
+hopscotch_reset
+lose
+properly_tagged_p_internal
+search_all_gc_spaces
+simple_fun_index
+varint_unpack
+varint_unpacker_init
+# the C shadow stack pointer, saved in unwind blocks and restored at the
+# non-local entry (wasm-stack.S; MAKE-UNWIND-BLOCK, EMIT-NLX-HANDLER)
+c_stack_save
+c_stack_restore
+# runtime functions the tests call (hash.pure.lisp)
+murmur3_fmix32
+murmur3_fmix64
+# runtime functions the tests call (brothertree.impure.lisp)
+brothertree_find_lesseql
+brothertree_find_greatereql
+brothertree_insert
+brothertree_delete
+# runtime functions the tests call (bsearch.pure.lisp)
+bsearch_lesseql_uword
+bsearch_greatereql_uword

@@ -51,3 +51,27 @@ echo "== failures"
 grep ' FAIL$' results.txt | sed 's/ FAIL$//' | tr '\n' ' '; echo
 echo "== crashed (a trap or the process deadline)"
 grep ' CRASHED$' results.txt | sed 's/ CRASHED$//' | tr '\n' ' '; echo
+# The expected failures: the one list in ansi-tests.sh (its #+wasm entries
+# included), extracted from the --eval text and compared with the results
+# in the saved core, the way ansi-tests.sh does at the end of its run.
+echo "== against the expected failures of ansi-tests.sh"
+awk '/\(expected \(list\*/ { on = 1; sub(/.*\(expected /, "") }
+     on { print; n = gsub(/\(/, "("); m = gsub(/\)/, ")"); depth += n - m; if (depth <= 0) exit }' \
+    ../ansi-tests.sh > wasm-ansi-expected.lisp-expr
+# (the extracted text ends with the parenthesis closing the EXPECTED binding)
+{ echo '(let* ((expected'
+  cat wasm-ansi-expected.lisp-expr
+  cat <<'LISP'
+       (failing (with-open-file (in "results.txt")
+                  (loop for line = (read-line in nil) while line
+                        for space = (position #\Space line)
+                        unless (string= (subseq line (1+ space)) "PASS")
+                          collect (subseq line 0 space))))
+       (unexpected (set-difference failing expected :test #'equal))
+       (passing (set-difference expected failing :test #'equal)))
+  (format t "unexpected failures: ~D~{ ~A~}~%" (length unexpected) (sort unexpected #'string<))
+  (format t "expected to fail but passing: ~D~{ ~A~}~%" (length passing) (sort passing #'string<))
+  (sb-ext:exit :code (if unexpected 1 0)))
+LISP
+} > wasm-ansi-compare.lisp
+SBCL_WASM_TIMEOUT=300 $SBCL --core wasm-ansi.core $RUNTIME_OPTIONS $LISP_OPTIONS --load wasm-ansi-compare.lisp

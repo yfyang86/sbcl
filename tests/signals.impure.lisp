@@ -1,3 +1,6 @@
+;;; the WebAssembly port: no-signals
+#+wasm (invoke-restart 'run-tests::skip-file)
+
 ;;;; Tests for async signal safety.
 
 ;;;; This software is part of the SBCL system. See the README file for

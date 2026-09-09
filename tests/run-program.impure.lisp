@@ -1,3 +1,6 @@
+;;; the WebAssembly port: no-fork: RUN-PROGRAM is synchronous (no :wait nil, :stream, signals), and the file needs sb-posix
+#+wasm (invoke-restart 'run-tests::skip-file)
+
 ;;;; various RUN-PROGRAM tests with side effects
 
 ;;;; This software is part of the SBCL system. See the README file for

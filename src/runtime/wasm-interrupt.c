@@ -18,6 +18,7 @@
 #include "interr.h"
 #include "globals.h"
 #include "thread.h"
+#include "lispregs.h"
 #include "arch.h"
 #include "genesis/static-symbols.h"
 
@@ -116,5 +117,8 @@ void reset_thread_binding_stack_guard_page(struct thread *th) {}
  * function is called with a matching signature. */
 void undefined_alien_function(void)
 {
-    funcall0(StaticSymbolFunction(UNDEFINED_ALIEN_FUN_ERROR));
+    /* the linkage cell compiled code read last (FOREIGN-SYMBOL-SAP), from
+     * which UNDEFINED-ALIEN-FUN-ERROR names the function */
+    uint32_t cell = *(uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_FOREIGN_CELL);
+    funcall1(StaticSymbolFunction(UNDEFINED_ALIEN_FUN_ERROR), make_fixnum(cell));
 }

@@ -1,0 +1,52 @@
+;;;; SIGBUS handler not installed
+sbcl-wasm: error while executing at wasm backtrace:
+    0: <unknown>!lambda1
+    1:    0x263 - <unknown>!lambda1
+    2:    0x2f7 - <unknown>!lambda1
+    3:    0x2f7 - <unknown>!lambda1
+    4:    0x2f7 - <unknown>!lambda1
+    5:    0x2f7 - <unknown>!lambda1
+    6:    0x2f7 - <unknown>!lambda1
+    7:    0x2f7 - <unknown>!lambda1
+    8:    0x2f7 - <unknown>!lambda1
+    9:    0x2f7 - <unknown>!lambda1
+   10:    0x2f7 - <unknown>!lambda1
+   11:    0x2f7 - <unknown>!lambda1
+   12:    0x2f7 - <unknown>!lambda1
+   13:    0x2f7 - <unknown>!lambda1
+   14:    0x2f7 - <unknown>!lambda1
+   15:    0x2f7 - <unknown>!lambda1
+   16:    0x2f7 - <unknown>!lambda1
+   17:    0x2f7 - <unknown>!lambda1
+   18:    0x2f7 - <unknown>!lambda1
+   19:    0x2f7 - <unknown>!lambda1
+
+Caused by:
+    wasm trap: call stack exhausted
+
+Stack backtrace:
+   0: wasmtime_internal_core::error::backtrace::capture
+   1: wasmtime_internal_core::error::error::Error::new
+   2: wasmtime::runtime::trap::from_runtime_box
+   3: wasmtime::runtime::vm::traphandlers::catch_traps
+   4: wasmtime::runtime::func::invoke_wasm_and_catch_traps
+   5: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call_raw
+   6: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call
+   7: sbcl_wasm::run
+   8: std::sys::backtrace::__rust_begin_short_backtrace
+   9: core::ops::function::FnOnce::call_once{{vtable.shim}}
+  10: std::sys::thread::unix::Thread::new::thread_start
+  11: start_thread
+             at ./nptl/pthread_create.c:447:8
+  12: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0
+
+sbcl-wasm: Lisp registers at the trap:
+
+   NARGS 0x8 CSP 0x31bf9b74 CFP 0x31bf9b34 OCFP 0x31bf9b24 NFP 0x10c290 NSP 0x10c290
+   LEXENV 0x31bf9b14 CODE 0x1002615f LIP 0x0 CFUNC 0x5dc478a A0 0x17711e28 A1 0x4
+   A2 0x17711e28 A3 0x1100033 L0 0x52ee L1 0x1382801d L2 0x1100033 L3 0x1100033
+   L4 0x7ffffff8 L5 0x1100033 NL0 0x5dc478b NL1 0x0 NL2 0x0 NL3 0x30260554
+   NL4 0x302604a0 NL5 0x0 NL6 0x4 NL7 0x4 TMP 0x9e RA 0x0
+   frame at OCFP 0x31bf9b24: 0x31bf9b14 0x0 0x13828007 0x17711e28 0x31bf9b24 0x4 0x2360802 0x23002304 0x17711e28 0x4 0x230b0f00 0x28002300
+   frame at CFP 0x31bf9b34: 0x31bf9b24 0x4 0x2360802 0x23002304 0x17711e28 0x4 0x230b0f00 0x28002300 0x2280802 0x28023614 0x230023 0x28080228

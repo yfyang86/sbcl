@@ -499,6 +499,33 @@ int32_t sbcl_host_instantiate(const void *bytes, int32_t length,
 /* The module holding the core's functions lives next to the core file:
  * "foo.core" -> "foo-core.wasm". The host instantiates it against this
  * module's memory and table, with the register area as its thread. */
+/* SAVE-LISP-AND-DIE (gc_and_save, save.c): the saved core needs the
+ * core module beside it under its own name ("foo.core" -> "foo-core.wasm"),
+ * a copy of the module the running core was loaded with. */
+extern char *core_string;
+char *wasm_core_module_path(const char *core_path);
+void wasm_save_core_module(const char *filename)
+{
+    char *from = wasm_core_module_path(core_string);
+    char *to = wasm_core_module_path(filename);
+    FILE *in = fopen(from, "rb"), *out = 0;
+    char buffer[65536];
+    size_t n;
+    if (!in) { fprintf(stderr, "can't read the core module %s\n", from); goto done; }
+    out = fopen(to, "wb");
+    if (!out) { fprintf(stderr, "can't write the core module %s\n", to); goto done; }
+    while ((n = fread(buffer, 1, sizeof buffer, in)) > 0)
+        if (fwrite(buffer, 1, n, out) != n) {
+            fprintf(stderr, "can't write the core module %s\n", to);
+            break;
+        }
+ done:
+    if (in) fclose(in);
+    if (out) fclose(out);
+    free(from);
+    free(to);
+}
+
 /* Modules loaded at run time (WASM-INSTALL-CODE in wasm-vm.lisp) */
 int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
 {
@@ -516,13 +543,20 @@ int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_ba
     return ok;
 }
 
-void wasm_load_core_module(const char *core_path)
+/* "foo.core" -> "foo-core.wasm" (malloc'ed) */
+char *wasm_core_module_path(const char *core_path)
 {
     size_t n = strlen(core_path);
     char *path = checked_malloc(n + 16);
     memcpy(path, core_path, n + 1);
     if (n > 5 && !strcmp(path + n - 5, ".core")) path[n - 5] = 0;
     strcat(path, "-core.wasm");
+    return path;
+}
+
+void wasm_load_core_module(const char *core_path)
+{
+    char *path = wasm_core_module_path(core_path);
     FILE *f = fopen(path, "rb");
     if (!f) lose("can't open the core module %s", path);
     fseek(f, 0, SEEK_END);

@@ -1,6 +1,8 @@
 #!/bin/sh
 
 . ./subr.sh
+# the WebAssembly port: no-cc: the relocation test binary is built with the host C compiler and make
+[ -n "$SBCL_WASM" ] && exit $EXIT_TEST_WIN
 
 # The relocation test binary can only be built on linux or x86-64 + darwin.
 data=`run_sbcl --eval '(progn #+(or linux (and x86-64 darwin))(progn(princ "fakemap") #+64-bit(princ "_64")))' \

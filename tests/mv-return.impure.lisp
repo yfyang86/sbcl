@@ -19,6 +19,7 @@
                                  '#.(loop for i below mvl collect (list i))
                                  :test #'equal))))))
 
-(test-util:with-test (:name :async-mv-area-preservation)
+(test-util:with-test (:name :async-mv-area-preservation
+                      :skipped-on :wasm) ; no-signals: setitimer
   (schedule-timer (make-timer #'ret2) 0.1 :repeat-interval 0.005)
   (j))

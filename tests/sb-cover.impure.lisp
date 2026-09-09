@@ -1,3 +1,6 @@
+;;; the WebAssembly port: code coverage fixups are not supported by the backend yet
+#+wasm (invoke-restart 'run-tests::skip-file)
+
 (defparameter run-tests::*allowed-inputs* :any)
 (require :sb-cover)
 

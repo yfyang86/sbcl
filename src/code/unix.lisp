@@ -905,7 +905,7 @@ avoiding `atexit(3)` hooks, etc. Otherwise `exit(2)` is called."
   (daylight-savings-p (boolean 32) :out))
 #-win32
 (defun nanosleep (secs nsecs)
-  (alien-funcall (extern-alien "sb_nanosleep" (function int time-t int))
+  (alien-funcall (extern-alien "sb_nanosleep" (function void time-t int))
                  secs nsecs)
   nil)
 

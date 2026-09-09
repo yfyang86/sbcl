@@ -256,6 +256,23 @@
         (push (tn-ref-tn ref) result-tns))
       (setf params (nreverse params)
             result-tns (nreverse result-tns))
+      ;; An alien function the runtime does not define has the guard
+      ;; undefined_alien_function in its linkage cell (a void () function,
+      ;; so a typed call through it with any other signature would trap in
+      ;; the host's type check): call the guard by its own type instead,
+      ;; which signals UNDEFINED-ALIEN-FUNCTION-ERROR.
+      (let ((undefined (gen-label)))
+        (assemble (:elsewhere)
+          (emit-label undefined)
+          (inst i32.const (make-fixup "undefined_alien_function" :foreign))
+          (inst i32.load 0)
+          (inst call_indirect (make-fixup (list '() '()) :function-type))
+          (inst unreachable))
+        (load-reg function)
+        (inst i32.const (make-fixup "undefined_alien_function" :foreign))
+        (inst i32.load 0)
+        (inst i32.eq)
+        (inst jump-if undefined))
       (load-reg function)
       (cond ((and (= (length result-tns) 2)
                   (wasm-i64-high-tn-p (second result-tns)))
@@ -328,6 +345,10 @@
   (:results (res :scs (sap-reg)))
   (:result-types system-area-pointer)
   (:generator 2
+    ;; the cell's address, for the undefined-alien guard's error message
+    (inst global.get +thread-global+)
+    (inst i32.const (make-fixup foreign-symbol :foreign))
+    (inst i32.store +thread-foreign-cell-offset+)
     (store-reg res
       (inst i32.const (make-fixup foreign-symbol :foreign))
       (inst i32.load 0))))

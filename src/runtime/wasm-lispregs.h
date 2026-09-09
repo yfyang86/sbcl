@@ -55,4 +55,6 @@
  * compiled code emits (EMIT-GENGC-BARRIER, macros.lisp) */
 #define LISP_REGISTER_AREA_CARD_TABLE 460
 #define LISP_REGISTER_AREA_CARD_MASK 464
+/* the linkage cell FOREIGN-SYMBOL-SAP read last (undefined_alien_function) */
+#define LISP_REGISTER_AREA_FOREIGN_CELL 468
 #define LISP_REGISTER_AREA_SIZE     512

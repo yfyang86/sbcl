@@ -274,6 +274,8 @@
       ,(maybe "SB-VM" "*WASM-LOADED-MODULES*")
       ,(maybe "SB-VM" "*WASM-TABLE-NEXT*")
       ,(maybe "SB-WASM-ASM" "*CORE-MODULE-INFO*")
+      ;; RUN-PROGRAM's temporary-file counter on the WebAssembly port
+      ,(maybe "SB-IMPL" "*WASM-PROCESS-COUNTER*")
       ,(maybe "SB-IMPL" "*RUN-GC-HOOKS*")
       ,(maybe "SB-VM" "*FNAME-MAP-AVAILABLE-ELTS*")
       ,(maybe "SB-VM" "*FNAME-MAP-OBSERVED-GC-EPOCH*")

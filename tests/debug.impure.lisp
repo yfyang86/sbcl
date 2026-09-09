@@ -139,7 +139,8 @@
 
 (defparameter *breakpoint-tracing-expectations*
   '(:fails-on (or :arm :riscv :ppc64 :ppc :sparc :mips)
-    :broken-on (or :loongarch64 :freebsd)))
+    :broken-on (or :loongarch64 :freebsd)
+    :skipped-on :wasm)) ; no-breakpoints: no code patching on this target
 
 ;;; bug 379
 (with-test (:name (trace :encapsulate nil)

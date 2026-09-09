@@ -243,6 +243,20 @@ second afterwards.
   summarizes; `Sprints/Sprint9/baseline.sh REGRESS-LOG` writes the
   baseline report (`doc/wasm-port/baselines/`). `SBCL_WASM_TEST_TIMEOUT`
   (seconds, default 1800) bounds each file.
+- Tests the port cannot run carry `:skipped-on :wasm` with the reason
+  in a comment (`doc/wasm-port/05-testing.md`, 5.2: `no-signals`,
+  `no-breakpoints`, `no-fork`, `no-dlopen`, `depth`, ...), whole files
+  `(invoke-restart 'run-tests::skip-file)` under `#+wasm`, and the shell
+  tests that cannot run exit early when `subr.sh` has set `SBCL_WASM`.
+  `:no-float-traps` is on `*features*` while a test file runs.
+- The kernel's mapping limit: every component compiled at run time is a
+  module of its own, about four memory mappings in the host, and a
+  saved core starts with its 7,000 modules; a file that compiles more
+  than about 8,000 components (`arith-slow.pure.lisp`,
+  `cmp-combinations.pure.lisp`, `seq.impure.lisp`) exhausts the default
+  `vm.max_map_count` of 65,530 ("unable to make memory executable").
+  Raise it for the suites (`sysctl -w vm.max_map_count=1048576`) until
+  the saved modules are merged.
 - The ANSI suite: `tests/ansi-tests.sh` (`./build-wasm.sh ansi`; the
   script checks out `tests/ansi-test`) hands over to
   `tests/wasm-ansi-tests.sh`: the suite is loaded once into a saved
@@ -254,11 +268,21 @@ second afterwards.
   crashed is retried once, then recorded as `CRASHED`). Output in
   `tests/ansi-test/wasm-ansi.log`; the summary at the end;
   `SBCL_WASM_ANSI_TIMEOUT` (seconds, default 1800) bounds one process.
+  At the end the results are compared with the expected-failure list of
+  `ansi-tests.sh` (the one list; its `#+wasm` entries are the port's),
+  and the script exits 1 on an unexpected failure.
   `Sprints/Sprint9/baseline.sh REGRESS-LOG [ANSI-RESULTS]` adds its
   results to the baseline report.
 - The contribs: `./build-wasm.sh contrib` builds the pure-Lisp ones into
   `obj/sbcl-home/contrib` (the blocklist is in `build-wasm.sh`);
   `(require :sb-md5)` and the others work in the saved core.
+- `save-lisp-and-die` writes the core module beside the core under the
+  core's name (`foo.core`, `foo-core.wasm`); `:executable t` is not
+  supported yet (the file is not a program the host can run).
+- A call to an alien function the runtime does not define signals
+  `undefined-alien-function-error` with the name, whatever the declared
+  signature (the linkage table maps such names to a guard the compiled
+  call checks for).
 - `disassemble` prints a function's Wasm instructions (body and module
   offsets, the latter what a trap backtrace reports);
   `(sb-wasm-asm::disassemble-table-index N)` does the same for a table
