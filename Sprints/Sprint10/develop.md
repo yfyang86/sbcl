@@ -128,3 +128,25 @@ only reachable from assembly), `MAKE-UNWIND-BLOCK` and
 (`c-sp`, objdef.lisp, `#+wasm`), and the landing code of a function
 with non-local entries (`EMIT-NLX-HANDLER`) restores it through the
 runtime's cell before dispatching to the entry.
+
+## 8. What the first rerun of the fixed files showed
+
+1. **An immediate outside 32 bits.** `(setf (aref bit-vector 31) 0)` with a
+   constant index died in the compiler: the small-data-vector store VOP
+   builds the element's mask with `lognot`, which for the top element of
+   a word is below `(signed-byte 32)`, and the `i32.const` emitter
+   refuses values outside 32 bits. The mask is taken modulo 2^32.
+2. **The undefined-alien guard at work.** `murmur3_fmix32`,
+   `brothertree_find_lesseql` and the `bsearch_*_uword` functions the
+   tests call are runtime functions that were not in the linkage table:
+   the guard turned each into "The alien function X is undefined" (a
+   Lisp error the test reports) instead of a dead process; they are
+   listed now.
+3. **Datum-less type errors.** `type-error` from reading an
+   uninitialized structure slot has the unbound marker as its datum (the
+   slot reads as unbound); the "accessed uninitialized slot" wording
+   needs `sb-di:error-context`, which the port's debugger support does
+   not provide yet.
+4. **The C stack stays put**: 20,000 errors caught by `handler-case`
+   leave `c_stack_save` where it was (item 7 of the C stack fix,
+   measured in the cold core).

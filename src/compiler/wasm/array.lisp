@@ -317,7 +317,10 @@
                     (emit-store-word displacement
                       (load-reg object)
                       (emit-load-word displacement)
-                      (inst i32.const (lognot (ash ,(1- (ash 1 bits)) (* extra ,bits))))
+                      ;; the mask within 32 bits: LOGNOT of a mask whose top
+                      ;; bit is set is below (signed-byte 32)
+                      (inst i32.const (logand (lognot (ash ,(1- (ash 1 bits)) (* extra ,bits)))
+                                              #xFFFFFFFF))
                       (inst i32.and)
                       (sc-case value
                         (immediate

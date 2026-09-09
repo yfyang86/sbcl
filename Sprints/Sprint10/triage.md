@@ -9,7 +9,7 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | File | Ended | Failures | Class | Action |
 |---|---|---|---|---|
 | `aliencall.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
-| `arith-2.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
+| `arith-2.pure.lisp` | trap: unreachable | 0 | backend | after the arm fix: five reported failures (`coerce :overflow` is no-float-traps; `:signed-byte-8-p-unsigned`, `:truncate-unknown-integer`, `:word-floor-ceiling`, `:logand-cut-constants.2` are arithmetic bugs to fix) |
 | `arith-slow.pure.lisp` | trap:  | 0 | runtime | module exhaustion: thousands of run-time modules exhaust the host's executable mappings ("unable to make memory executable"); task 50 |
 | `arith.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
 | `array.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
@@ -17,8 +17,8 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | `banner.test.sh` | reported | 0 | runtime | save: `:executable t` writes a file the host cannot run ("Exec format error"); Sprint 11: a launcher script with the core appended |
 | `bit-vector.impure.lisp` | reported | 0 | lisp | to look at individually (first failure in the log) |
 | `block-compile.impure.lisp` | reported | 0 | lisp | to look at individually (first failure in the log) |
-| `brothertree.impure.lisp` | reported | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
-| `bsearch.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | callbacks: `bsearch` with an `alien-callback` comparator; no callbacks on this target yet (plan Sprint 13): `:skipped-on :wasm` (no-callbacks) |
+| `brothertree.impure.lisp` | reported | 0 | foreign | fixed: `brothertree_*` were not in the linkage table (listed now) |
+| `bsearch.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: the runtime's `bsearch_*_uword` were not in the linkage table (listed now); not callbacks |
 | `bug-1072739.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
 | `ccase.pure.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
 | `chill.impure.lisp` | reported | 1 | environment | a C compiler, shared objects, the host's `make`, the crossbuild manifest, or `local-target-features` of the host build: `:skipped-on :wasm` (no-cc / environment) |
@@ -26,30 +26,30 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | `cmp-combinations.pure.lisp` | trap:  | 0 | runtime | module exhaustion: thousands of run-time modules exhaust the host's executable mappings ("unable to make memory executable"); task 50 |
 | `compare-and-swap.impure.lisp` | reported | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
 | `compiler-2.impure.lisp` | reported | 0 | lisp | to look at individually (first failure in the log) |
-| `compiler-2.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
+| `compiler-2.pure.lisp` | trap: indirect call type mismatch | 0 | runtime | the `pack-varints` call fixed; then module exhaustion at `:jump-table-use-labels`, with `arith-slow` (task 50) |
 | `compiler-ir.pure.lisp` | reported | 2 | lisp | to look at individually (first failure in the log) |
 | `compiler.impure.lisp` | reported | 2 | lisp | to look at individually (first failure in the log) |
 | `compiler.pure-cload.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
-| `compiler.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
+| `compiler.pure.lisp` | trap: unreachable | 0 | backend | fixed: the bit-vector store VOP computed its mask with `lognot` outside 32 bits for element 31 (`(compile bit-vector setf aref :overflow)`); the `i32.const` emitter refused it |
 | `condition-2.pure.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
 | `condition.pure.lisp` | reported | 1 | backend | `dynamic-extent` is not honoured (no stack allocation in the backend; Sprint 4 carry-over): `:broken-on :wasm` for the no-consing and `stack-allocated-p` checks (issue "dx allocation") |
 | `constraint.pure.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
 | `ctor.impure.lisp` | reported | 2 | lisp | to look at individually (first failure in the log) |
 | `deadline.impure.lisp` | reported | 0 | foreign | fixed: `sb_nanosleep` declared void (it returned nothing; the typed call refused it) |
 | `debug.impure.lisp` | reported | 0 | debugger | frame walking: `backtrace`, `sb-di` frames, `restart-frame`, `return-from-frame`, stepping (breakpoints by code patching are impossible here, `debug.impure` dies of `lose`): `:broken-on :wasm` with the issue "debug-int on the wasm control stack" (Sprint 11) |
-| `debug.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
-| `defstruct.impure.lisp` | reported | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
+| `debug.pure.lisp` | trap: indirect call type mismatch | 0 | debugger | after the fix: `debug_function_name_from_pc` is not compiled into this runtime; the rest passes |
+| `defstruct.impure.lisp` | reported | 0 | debugger | after the arm fix: the "accessed uninitialized slot" message needs `sb-di:error-context` (the erring code location), which frame walking does not provide yet; the datum of the condition is the unbound marker, so it reads as unbound: with the debugger items (Sprint 11) |
 | `disassem.impure.lisp` | reported | 1 | debugger | frame walking: `backtrace`, `sb-di` frames, `restart-frame`, `return-from-frame`, stepping (breakpoints by code patching are impossible here, `debug.impure` dies of `lose`): `:broken-on :wasm` with the issue "debug-int on the wasm control stack" (Sprint 11) |
 | `disassem.pure-cload.lisp` | reported | 1 | debugger | frame walking: `backtrace`, `sb-di` frames, `restart-frame`, `return-from-frame`, stepping (breakpoints by code patching are impossible here, `debug.impure` dies of `lose`): `:broken-on :wasm` with the issue "debug-int on the wasm control stack" (Sprint 11) |
 | `dynamic-extent.pure.lisp` | reported | 52 | backend | `dynamic-extent` is not honoured (no stack allocation in the backend; Sprint 4 carry-over): `:broken-on :wasm` for the no-consing and `stack-allocated-p` checks (issue "dx allocation") |
-| `exhaust.impure.lisp` | reported | 0 | runtime | control-stack exhaustion overflows the host thread's native stack (the Wasm call depth lives there): the host must bound `max_wasm_stack` below its thread stack and the runtime signal `storage-condition` |
-| `external-format.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
+| `exhaust.impure.lisp` | reported | 0 | runtime | the host no longer aborts: "call stack exhausted" is a trap; `storage-condition` needs a control-stack guard: the file is skipped (depth) until then |
+| `external-format.pure.lisp` | trap: indirect call type mismatch | 0 | runtime | after the fix: `:end-of-file` ("select(2) failed on fd 6": no `poll`/`select` on a file under WASI), `:attempt-resync` (no-signals, tagged), `:invalid-external-format` (`run-program :input :stream`, no-fork) |
 | `fifo-slow.impure.lisp` | reported | 0 | lisp | to look at individually (first failure in the log) |
-| `filesys.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: undefined C function (no `getpwuid`/`gethostname`/`tmpfile` in wasi-libc) was a mistyped import; now a stub in `wasm-wasi-os.c` |
+| `filesys.pure.lisp` | trap: indirect call type mismatch | 0 | environment | after the fix: `(file-author stringp)` expects a user name and there is no user database: `:skipped-on :wasm` (no-passwd) |
 | `filesys.test.sh` | reported | 0 | lisp | to look at individually (first failure in the log) |
 | `finalize.impure.lisp` | reported | 1 | runtime | collector: code iteration count, `page-protected-p` (no mprotect: skip, no-mprotect), read-only space strings; weak hash tables not culled; finalizers not all run: to look at |
 | `float-2.pure.lisp` | reported | 5 | lisp | to look at individually (first failure in the log) |
-| `float.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: `sb_nanosleep` declared void (it returned nothing; the typed call refused it) |
+| `float.pure.lisp` | trap: indirect call type mismatch | 0 | no-float-traps | `:no-float-traps` is on the features for this target now (`test-funs.lisp`), which turns the overflow tests into expected failures |
 | `foreign-stack-alignment.impure.lisp` | reported | 0 | environment | a C compiler, shared objects, the host's `make`, the crossbuild manifest, or `local-target-features` of the host build: `:skipped-on :wasm` (no-cc / environment) |
 | `foreign.test.sh` | reported | 0 | environment | a C compiler, shared objects, the host's `make`, the crossbuild manifest, or `local-target-features` of the host build: `:skipped-on :wasm` (no-cc / environment) |
 | `gc-slow.impure.lisp` | reported | 0 | runtime | heap: "Signalling HEAP-EXHAUSTED in a WITHOUT-INTERRUPTS" (512 MiB default; the test allocates past it under `without-interrupts`): to look at with the collector items |
@@ -58,10 +58,10 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | `hash-2.pure.lisp` | reported | 5 | runtime | collector: code iteration count, `page-protected-p` (no mprotect: skip, no-mprotect), read-only space strings; weak hash tables not culled; finalizers not all run: to look at |
 | `hash-cache.pure.lisp` | reported | 1 | unsupported | `setitimer` (no timers, no signals under WASI): `:skipped-on :wasm` (no-signals) for the interrupt-driven tests; a host timer through the pending-interrupt word is Sprint 11 |
 | `hash-table.impure.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
-| `hash.pure.lisp` | trap: unreachable | 0 | backend | fixed: a jump to the first elsewhere chunk dispatched to the empty arm the function assembler makes at a range end (`arm-at`); the error path then ran `unreachable` |
+| `hash.pure.lisp` | trap: unreachable | 0 | foreign | fixed: `murmur3_fmix32` was not in the linkage table (listed now); `:sxhash-on-displaced-string` is `:fails-on :sbcl` |
 | `heapsort.pure-cload.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
 | `hide-packages.test.sh` | reported | 0 | lisp | to look at individually (first failure in the log) |
-| `hopscotch.impure-cload.lisp` | reported | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
+| `hopscotch.impure-cload.lisp` | reported | 0 | foreign | still "indirect call type mismatch" with `hopscotch_*` in the table: a declaration in the test differs from the C prototype; to look at |
 | `init-hooks.test.sh` | reported | 0 | runtime | save: `save-lisp-and-die` to another name does not write the core module file (`<name>-core.wasm`); the saved core cannot start |
 | `init.test.sh` | reported | 0 | runtime | save: `save-lisp-and-die` to another name does not write the core module file (`<name>-core.wasm`); the saved core cannot start |
 | `interface.impure.lisp` | reported | 0 | debugger | frame walking: `backtrace`, `sb-di` frames, `restart-frame`, `return-from-frame`, stepping (breakpoints by code patching are impossible here, `debug.impure` dies of `lose`): `:broken-on :wasm` with the issue "debug-int on the wasm control stack" (Sprint 11) |
@@ -72,7 +72,7 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | `mop.impure.lisp` | reported | 1 | backend | `dynamic-extent` is not honoured (no stack allocation in the backend; Sprint 4 carry-over): `:broken-on :wasm` for the no-consing and `stack-allocated-p` checks (issue "dx allocation") |
 | `mv-return.impure.lisp` | reported | 1 | unsupported | `setitimer` (no timers, no signals under WASI): `:skipped-on :wasm` (no-signals) for the interrupt-driven tests; a host timer through the pending-interrupt word is Sprint 11 |
 | `packages.impure.lisp` | reported | 1 | lisp | to look at individually (first failure in the log) |
-| `pathnames.pure.lisp` | trap: indirect call type mismatch | 0 | foreign | fixed: undefined C function (no `getpwuid`/`gethostname`/`tmpfile` in wasi-libc) was a mistyped import; now a stub in `wasm-wasi-os.c` |
+| `pathnames.pure.lisp` | trap: indirect call type mismatch | 0 | backend | after the `nanosleep` fix: `:intern-pathname-non-consy` (consing check): `dynamic-extent` not honoured, with `dynamic-extent.pure.lisp` |
 | `print.impure.lisp` | reported | 1 | unsupported | `setitimer` (no timers, no signals under WASI): `:skipped-on :wasm` (no-signals) for the interrupt-driven tests; a host timer through the pending-interrupt word is Sprint 11 |
 | `private-cons.impure.lisp` | reported | 0 | foreign | fixed: libc or runtime function absent from the linkage table (`strdup`, `strcat`, `varint_unpack`, `gc_heapsort_uwords`, `hopscotch_*`, `gc_private_*`, `debug_function_name_from_pc` ...): now listed, and an undefined alien signals `undefined-alien-function-error` |
 | `reader.impure.lisp` | reported | 3 | lisp | to look at individually (first failure in the log) |
