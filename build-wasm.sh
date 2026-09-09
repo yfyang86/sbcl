@@ -167,8 +167,24 @@ step_host() {
 # no dynamic loading on this target (doc/wasm-port/02-design.md, 2.9): pass-1 would add :os-provides-dlopen
 xc_features="(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :LITTLE-ENDIAN (NOT :OS-PROVIDES-DLOPEN))"
 
+# version.lisp-expr is generated (make-config.sh runs generate-version.sh)
+# and not in git: the cross-compiler reads it. generate-version.sh needs
+# 'git describe' to find an sbcl-* tag, which a clone of the port's
+# repository may not have; then the version is the base release plus the
+# commit.
+ensure_version_file() {
+    [ -f version.lisp-expr ] && return 0
+    ./generate-version.sh >/dev/null 2>&1 || true
+    if [ ! -f version.lisp-expr ]; then
+        hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+        printf '"2.6.8.wasm-dev.%s"\n' "$hash" > version.lisp-expr
+    fi
+    echo "version.lisp-expr: $(tail -1 version.lisp-expr)"
+}
+
 step_lisp() {
     have sbcl || die "no host sbcl in PATH (run the toolchain step)"
+    ensure_version_file
     if [ "$fast" = 1 ] && [ -f obj/xbuild/wasm/xc.core ]; then
         say "pass-1: obj/xbuild/wasm/xc.core present, skipped (--fast)"
     else

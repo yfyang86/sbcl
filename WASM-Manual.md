@@ -121,7 +121,7 @@ Steps, in the order `all` runs them:
 | `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo; downloads missing pinned releases (`--no-download` to only check) | seconds | |
 | `host` | `cargo build --release -p sbcl-wasm-host` | 1–3 min first time | `wasm/target/release/sbcl-wasm` |
 | `grovel` | compiles `tools-for-build/grovel-headers.c` for wasm32-wasi and runs it under the host to check or regenerate the target's C constants (`crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp`); needs the genesis headers, so it runs after `lisp` (as upstream's make-target-1 does); if the constants changed it says so and the Lisp side must be rebuilt | seconds | the groveled file |
-| `lisp` | crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
+| `lisp` | writes `version.lisp-expr` if missing (a generated file the cross-compiler reads; `generate-version.sh` when the clone has the `sbcl-*` tags, else the base release plus the commit), then crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
 | `runtime` | `tools-for-build/wasm-build-runtime.sh`: genesis headers into `src/runtime/genesis/`, target symlinks, generated linkage table, `make sbcl.wasm` with wasi-sdk | 1 min | `src/runtime/sbcl.wasm` |
 | `smoke` | `sbcl.wasm --version` and `--help` under the host | seconds | |
 | `test` | level-0 suite; rebuilds the after-xc core and runs the level-1 differential suite | 12 min | logs in `obj/wasm-build/` |
@@ -286,6 +286,14 @@ Sprints/SprintN/                               per-sprint records and UATs
 
 - *`wasi-sdk not found`*: set `WASISDK_PATH` (or `WASI_SDK`) or run the
   toolchain step.
+- *pass-1 stops loading `src/cold/defun-load-or-cload-xcompiler.lisp`
+  with `version.lisp-expr does not exist`*: the file is generated, not in
+  git; the `lisp` step writes it (older scripts did not). To do it by
+  hand: `./generate-version.sh`, or
+  `echo '"2.6.8.wasm-dev"' > version.lisp-expr`.
+- *`grovel` fails with `use of undeclared identifier 'FIXNUM_TAG_MASK'`*:
+  it ran before the `lisp` step; the constants come from the genesis
+  headers of pass-2 (`all` orders the steps accordingly).
 - *`no genesis headers`*: run the `lisp` step; the runtime needs
   `obj/xbuild/wasm/genesis-headers/` from pass-2 (or `genesis-headers-2`
   from `Sprints/Sprint6/genesis-map.sh`).
