@@ -224,6 +224,33 @@ second afterwards.
 
 `./build-wasm.sh test` runs level 0 and level 1.
 
+- The saved core (`output/sbcl.core`, from `./build-wasm.sh warm`) is
+  what the build tree's scripts run: `run-sbcl.sh`, `tests/subr.sh`
+  (so every `tests/*.test.sh`), `tests/parallel-exec.sh` and
+  `make-target-contrib.sh` run the runtime through
+  `tools-for-build/wasm-sbcl.sh`, the port's "sbcl binary" (the module
+  under the host, with the given arguments). The host makes the whole
+  file system visible with its own paths and the runtime works in the
+  host's directory, and `sb-ext:run-program` runs children on the host
+  (`sbcl_host.run_process`: synchronous, stdio as files or inherited;
+  a `.wasm` program runs under the host), which is how the impure and
+  shell tests get their child SBCL.
+- The regression suite: `tests/run-tests.sh [files]` as on any target,
+  or all files in parallel with `tests/wasm-parallel-exec.sh [-j N]`
+  (`./build-wasm.sh regress`), which logs each file separately and
+  summarizes; `Sprints/Sprint9/baseline.sh REGRESS-LOG` writes the
+  baseline report (`doc/wasm-port/baselines/`). `SBCL_WASM_TEST_TIMEOUT`
+  (seconds, default 1800) bounds each file.
+- The ANSI suite: `tests/ansi-tests.sh` (`./build-wasm.sh ansi`; the
+  script checks out `tests/ansi-test`).
+- The contribs: `./build-wasm.sh contrib` builds the pure-Lisp ones into
+  `obj/sbcl-home/contrib` (the blocklist is in `build-wasm.sh`);
+  `(require :sb-md5)` and the others work in the saved core.
+- `disassemble` prints a function's Wasm instructions (body and module
+  offsets, the latter what a trap backtrace reports);
+  `(sb-wasm-asm::disassemble-table-index N)` does the same for a table
+  index.
+
 ## 6. Debugging
 
 - **Backtraces.** Every trap (a Lisp internal error ends in an
