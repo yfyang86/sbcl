@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include "genesis/sbcl.h"
 
@@ -40,6 +41,8 @@
 #include "genesis/vector.h"
 #include "genesis/symbol.h"
 #include "genesis/static-symbols.h"
+#include "genesis/sap.h"
+#include "code.h"
 
 /* The register area of the (only) Lisp thread. Word slots 0..31 are the
  * registers, then the float registers, the internal-error arguments,
@@ -61,10 +64,10 @@ void arch_skip_instruction(os_context_t *context)
 
 unsigned char *arch_internal_error_arguments(os_context_t *context)
 {
-    return (unsigned char*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
+    return (unsigned char*)context->error;
 }
 
-/* the Lisp side's view of the same area */
+/* the Lisp side's view of the same block */
 unsigned char *os_context_error_args_addr(os_context_t *context)
 {
     return arch_internal_error_arguments(context);
@@ -210,37 +213,161 @@ void wasm_print_name(lispobj name)
 /* An internal error trap: the SC+offset descriptors of the arguments are
  * in the register area. Until the Lisp error handler is reachable
  * (Sprint 7) this is fatal. */
-__attribute__((export_name("internal_error")))
-void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
+extern int internal_errors_enabled;
+extern void bind_variable(lispobj symbol, lispobj value, void *th);
+extern void unbind(void *th);
+
+static void describe_wasm_internal_error(os_context_t *context)
 {
-    uint32_t *args = (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
-    fprintf(stderr, "Lisp internal error: trap kind %d, error code %d, %d argument(s):",
-            kind, code, nargs);
     int i;
-    for (i = 0; i < nargs && i < 16; i++) fprintf(stderr, " %#x", args[i]);
+    fprintf(stderr, "Lisp internal error: trap kind %d, error code %d, %d argument(s):",
+            context->error[0], context->error[1], context->error[2]);
+    for (i = 0; i < (int)context->error[2] && i < 16; i++)
+        fprintf(stderr, " %#x", context->error[3 + i]);
     fprintf(stderr, "\n  registers:");
     for (i = 0; i <= reg_RA; i++)
         fprintf(stderr, "%s%s %#x", (i % 6 == 0) ? "\n   " : " ",
-                lisp_register_names[i], lisp_register_area[i]);
+                lisp_register_names[i], context->regs[i]);
     fprintf(stderr, "\n");
     /* the callee of a named call has its fdefn in LEXENV */
-    lispobj lexenv = lisp_register_area[reg_LEXENV];
+    lispobj lexenv = context->regs[reg_LEXENV];
     if (lowtag_of(lexenv) == OTHER_POINTER_LOWTAG
         && widetag_of(native_pointer(lexenv)) == FDEFN_WIDETAG) {
         fprintf(stderr, "  LEXENV is the fdefn of ");
         wasm_print_name(FDEFN(lexenv)->name);
         fprintf(stderr, "\n");
     }
-    fprintf(stderr, "fatal error: internal error in compiled Lisp code (trapping for the host's backtrace)\n");
     fflush(stderr);
-    /* an unreachable trap rather than exit(): the host then prints the Wasm
-     * backtrace through the Lisp frames, with the functions' names */
-    __builtin_trap();
 }
 
-/* Polled by compiled code; nothing is delivered yet (2.7). */
+/* The internal_error import (EMIT-ERROR-BREAK, macros.lisp): compiled
+ * code has stored the SC+OFFSET words of the arguments into the register
+ * area's error-argument area. This is the whole of interrupt_internal_error
+ * for this target: snapshot the registers into a context, make it the
+ * current interrupt context (so that the debugger's FIND-INTERRUPTED-FRAME
+ * and the register accessors see the erring frame) and call the Lisp
+ * handler INTERNAL-ERROR, which signals the condition. The handler
+ * leaves by a non-local exit through this frame; errors are not
+ * continuable here (the calling code follows the call with unreachable),
+ * so a return is fatal. */
+__attribute__((export_name("internal_error")))
+void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
+{
+    struct thread *th = get_sb_vm_thread();
+    os_context_t context;
+    uint32_t *args = (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
+    int i;
+    memcpy(context.regs, lisp_register_area, sizeof context.regs);
+    context.error[0] = kind;
+    context.error[1] = code;
+    context.error[2] = nargs;
+    for (i = 0; i < nargs && i < 16; i++) context.error[3 + i] = args[i];
+    /* the "pc": the start of the current code object's instructions */
+    lispobj codeobj = lisp_register_area[reg_CODE];
+    context.pc = 0;
+    if (lowtag_of(codeobj) == OTHER_POINTER_LOWTAG
+        && widetag_of(native_pointer(codeobj)) == CODE_HEADER_WIDETAG) {
+        struct code *c = (struct code*)native_pointer(codeobj);
+        context.pc = (uint32_t)(uintptr_t)((lispobj*)c + code_header_words(c));
+    }
+    if (!internal_errors_enabled) {
+        describe_wasm_internal_error(&context);
+        lose("internal error too early in init, can't recover");
+    }
+    if (getenv("SBCL_WASM_TRACE_ERRORS"))
+        describe_wasm_internal_error(&context);
+    int index = fixnum_value(read_TLS(FREE_INTERRUPT_CONTEXT_INDEX, th));
+    if (index >= MAX_INTERRUPTS)
+        lose("maximum interrupt nesting depth (%d) exceeded", MAX_INTERRUPTS);
+    /* a dynamic binding: the non-local exit out of the handler unbinds it */
+    bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
+    nth_interrupt_context(index, th) = &context;
+    DX_ALLOC_SAP(context_sap, &context);
+    funcall2(StaticSymbolFunction(INTERNAL_ERROR), context_sap, NIL);
+    nth_interrupt_context(index, th) = NULL;
+    unbind(th);
+    describe_wasm_internal_error(&context);
+    lose("the internal error handler returned: continuable errors are not supported on this target");
+}
+
+/* Called by every XEP when the interrupt-pending word of the register
+ * area is nonzero: 1 is an interrupt request (from the host's Ctrl-C),
+ * 2 (SBCL_WASM_TRACE_ENTRIES) makes this trace every function entry:
+ * the callee's table index (LEXENV is its fdefn for a named call, else
+ * the function object) and the frame registers. Decode the indices with
+ * Sprints/Sprint7/coreindex.py --annotate. */
+static uint32_t *interrupt_pending_word(void)
+{
+    return (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_INTERRUPT_PENDING);
+}
 __attribute__((export_name("pending_interrupt")))
-void wasm_pending_interrupt(void) {}
+void wasm_pending_interrupt(void)
+{
+    uint32_t *word = interrupt_pending_word();
+    if (*word == 2) {
+        lispobj lexenv = lisp_register_area[reg_LEXENV];
+        fprintf(stderr, "; enter");
+        if (lowtag_of(lexenv) == OTHER_POINTER_LOWTAG
+            && widetag_of(native_pointer(lexenv)) == FDEFN_WIDETAG) {
+            fprintf(stderr, " ");
+            wasm_print_name(FDEFN(lexenv)->name);
+        } else if (lowtag_of(lexenv) == FUN_POINTER_LOWTAG) {
+            lispobj dummy;
+            fprintf(stderr, " table %u", (unsigned)function_entry_index(lexenv, &dummy));
+        } else {
+            fprintf(stderr, " lexenv %#x", (unsigned)lexenv);
+        }
+        fprintf(stderr, ": NARGS %d CFP %#x CSP %#x OCFP %#x A0 %#x A1 %#x\n",
+                (int)fixnum_value(lisp_register_area[reg_NARGS]),
+                lisp_register_area[reg_CFP], lisp_register_area[reg_CSP],
+                lisp_register_area[reg_OCFP], lisp_register_area[reg_A0],
+                lisp_register_area[reg_A1]);
+        return;
+    }
+    if (*word == 1) {
+        *word = 0;
+        fprintf(stderr, "; interrupt request seen at a safe point (delivery to Lisp is not implemented yet)\n");
+    }
+}
+
+/* The allocation entry points compiled code calls (alloc.c), wrapped so
+ * that SBCL_WASM_TRACE_ALLOC=1 shows the frame registers at every
+ * allocation: a cheap way to bracket where a frame pointer goes bad. */
+extern lispobj *alloc(sword_t nbytes);
+extern lispobj *alloc_list(sword_t nbytes);
+static int trace_alloc = -1;
+static void trace_allocation(const char *what, sword_t nbytes)
+{
+    if (trace_alloc < 0) trace_alloc = getenv("SBCL_WASM_TRACE_ALLOC") != 0;
+    if (trace_alloc)
+        fprintf(stderr, "; %s %ld: CFP %#x CSP %#x OCFP %#x CODE %#x LEXENV %#x A0 %#x A1 %#x A2 %#x A3 %#x\n",
+                what, (long)nbytes,
+                lisp_register_area[reg_CFP], lisp_register_area[reg_CSP],
+                lisp_register_area[reg_OCFP], lisp_register_area[reg_CODE],
+                lisp_register_area[reg_LEXENV], lisp_register_area[reg_A0],
+                lisp_register_area[reg_A1], lisp_register_area[reg_A2], lisp_register_area[reg_A3]);
+}
+__attribute__((export_name("alloc")))
+lispobj *wasm_alloc(sword_t nbytes)
+{
+    trace_allocation("alloc", nbytes);
+    lispobj *result = alloc(nbytes);
+    trace_allocation("  after alloc", nbytes);
+    return result;
+}
+__attribute__((export_name("alloc_list")))
+lispobj *wasm_alloc_list(sword_t nbytes)
+{
+    trace_allocation("alloc_list", nbytes);
+    lispobj *result = alloc_list(nbytes);
+    trace_allocation("  after alloc_list", nbytes);
+    return result;
+}
+
+/* exit and _exit with the int result SB-UNIX's SYSCALL declares (the
+ * linkage table maps the names here, tools-for-build/wasm-linkage-table.sh) */
+int wasm_exit_int(int code) { exit(code); return 0; }
+int wasm__exit_int(int code) { _exit(code); return 0; }
 
 /*** the core module (2.2) ***/
 
@@ -251,6 +378,12 @@ int32_t sbcl_host_instantiate(const void *bytes, int32_t length,
 /* The module holding the core's functions lives next to the core file:
  * "foo.core" -> "foo-core.wasm". The host instantiates it against this
  * module's memory and table, with the register area as its thread. */
+/* Modules loaded at run time (WASM-INSTALL-CODE in wasm-vm.lisp) */
+int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
+{
+    return sbcl_host_instantiate(bytes, length, lisp_register_area, table_base);
+}
+
 void wasm_load_core_module(const char *core_path)
 {
     size_t n = strlen(core_path);
@@ -270,6 +403,8 @@ void wasm_load_core_module(const char *core_path)
         fprintf(stderr, "; instantiating %s (%ld bytes)\n", path, size);
     if (!sbcl_host_instantiate(bytes, (int32_t)size, lisp_register_area, WASM_CORE_TABLE_BASE))
         lose("the host could not instantiate the core module %s", path);
+    if (getenv("SBCL_WASM_TRACE_ENTRIES"))
+        *interrupt_pending_word() = 2;
     free(bytes);
     free(path);
 }

@@ -2350,7 +2350,9 @@
                       converged-type-of-combination
                       maybe-infer-iteration-var-type
                       ir1-optimize-mv-combination
-                      substitute-single-use-lvar))
+                      substitute-single-use-lvar
+                      ;; called from OPTIMISTIC-STEP-P, outside the block
+                      iteration-step-values))
 
 ;;; Propagate TYPE to LEAF and its REFS, marking things changed.
 ;;;

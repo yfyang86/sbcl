@@ -1000,3 +1000,28 @@
       (load-reg digit)
       (load-reg count)
       (inst i32.shl))))
+
+;;;; FASTREM-32: the remainder of a division by a constant through a
+;;;; precomputed coefficient C (SB-C:COMPUTE-FASTREM-COEFFICIENT):
+;;;; (ldb (byte 32 32) (* (ldb (byte 32 0) (* dividend c)) divisor)).
+(define-vop (fastrem-32)
+  (:translate fastrem-32)
+  (:policy :fast-safe)
+  (:args (dividend :scs (unsigned-reg))
+         (c :scs (unsigned-reg))
+         (divisor :scs (unsigned-reg)))
+  (:arg-types unsigned-num unsigned-num unsigned-num)
+  (:results (remainder :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:generator 10
+    (store-reg remainder
+      (load-reg dividend)
+      (load-reg c)
+      (inst i32.mul)
+      (inst i64.extend_i32_u)
+      (load-reg divisor)
+      (inst i64.extend_i32_u)
+      (inst i64.mul)
+      (inst i64.const 32)
+      (inst i64.shr_u)
+      (inst i32.wrap_i64))))

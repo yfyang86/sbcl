@@ -34,6 +34,53 @@
   #include <wincrypt.h>
   #include <winsock2.h>
   #undef boolean
+#elif defined LISP_FEATURE_WASM
+  /* WebAssembly/WASI (wasi-sdk): no processes, terminals, dynamic
+   * loading or interval timers. The constants those headers would
+   * provide are defined here with placeholder values so that the Lisp
+   * side keeps its names; nothing on this target uses them. */
+  #include <poll.h>
+  #include <sys/select.h>
+  #include <sys/times.h>
+  #include <sys/time.h>
+  #define RTLD_LAZY 1
+  #define RTLD_NOW 2
+  #define RTLD_GLOBAL 256
+  #define WNOHANG 1
+  #define WUNTRACED 2
+  #define TIOCGPGRP 0
+  #define ITIMER_REAL 0
+  #define ITIMER_VIRTUAL 1
+  #define ITIMER_PROF 2
+  #ifndef SIG_BLOCK
+    #define SIG_BLOCK 0
+    #define SIG_UNBLOCK 1
+    #define SIG_SETMASK 2
+  #endif
+  #ifndef FPE_FLTDIV
+    #define FPE_FLTDIV -1
+    #define FPE_FLTOVF -1
+    #define FPE_FLTUND -1
+    #define FPE_FLTRES -1
+    #define FPE_FLTINV -1
+  #endif
+  #ifndef _SC_NPROCESSORS_ONLN
+    #define _SC_NPROCESSORS_ONLN -1
+  #endif
+  #ifndef POLLPRI
+    #define POLLPRI 2
+  #endif
+  /* WASI clock ids are pointers; the Lisp side passes these numbers and
+   * the runtime's sb_clock_gettime (wrap.c) maps them back */
+  #define WASM_CLOCK_REALTIME 0
+  #define WASM_CLOCK_MONOTONIC 1
+  #define WASM_CLOCK_PROCESS_CPUTIME_ID 2
+  /* the Linux-only clocks (the crossbuild features say :linux): Linux's
+   * numbers; the runtime treats them as the monotonic clock */
+  #define CLOCK_REALTIME_COARSE 5
+  #define CLOCK_MONOTONIC_COARSE 6
+  #define CLOCK_MONOTONIC_RAW 4
+  #define CLOCK_THREAD_CPUTIME_ID 3
 #else
   #include <poll.h>
   #include <sys/select.h>
@@ -359,7 +406,11 @@ main(int argc, char __attribute__((unused)) *argv[])
     printf("\n");
 
 #ifdef LISP_FEATURE_OS_PROVIDES_CLOCK_GETTIME
-#ifdef LISP_FEATURE_UNIX
+#if defined LISP_FEATURE_WASM
+    DEFCONSTANT("clock-realtime", WASM_CLOCK_REALTIME);
+    DEFCONSTANT("clock-monotonic", WASM_CLOCK_MONOTONIC);
+    DEFCONSTANT("clock-process-cputime-id", WASM_CLOCK_PROCESS_CPUTIME_ID);
+#elif defined LISP_FEATURE_UNIX
     DEFCONSTANT("clock-realtime", CLOCK_REALTIME);
     DEFCONSTANT("clock-monotonic", CLOCK_MONOTONIC);
     DEFCONSTANT("clock-process-cputime-id", CLOCK_PROCESS_CPUTIME_ID);

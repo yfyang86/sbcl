@@ -1,0 +1,8 @@
+sbcl-wasm: module of 43404 functions at table 4096..47500: compile 0.849 s, instantiate 0.007 s
+;;;; SIGBUS handler not installed
+sbcl-wasm: module of 2 functions at table 47500..47502: compile 0.000 s, instantiate 0.000 s
+sbcl-wasm: module of 1 functions at table 47502..47503: compile 0.000 s, instantiate 0.000 s
+sbcl-wasm: module of 2 functions at table 47503..47505: compile 0.000 s, instantiate 0.000 s
+sbcl-wasm: module of 1 functions at table 47505..47506: compile 0.000 s, instantiate 0.000 s
+
+3 

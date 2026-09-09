@@ -9,6 +9,9 @@
 #              download the pinned tool-chain releases that are missing
 #              (never overwrites an existing installation)
 #   host       build the Wasmtime host, wasm/target/release/sbcl-wasm
+#   grovel     regenerate the target's groveled C constants
+#              (crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp)
+#              by running tools-for-build/grovel-headers.c under the host
 #   lisp       crossbuild pass-1 (host compiler) and pass-2 (cross-compile
 #              the tree, genesis): obj/xbuild/wasm.core, wasm-core.wasm,
 #              wasm.map, genesis headers. About 20 minutes.
@@ -20,7 +23,7 @@
 #              the runtime (e.g. run -- --noinform)
 #   clean      remove the Lisp build products and the runtime objects
 #   env        print the tool-chain settings and exit
-#   all        toolchain host lisp runtime smoke
+#   all        toolchain host grovel lisp runtime smoke
 #
 # Options:
 #   --fast     lisp: skip pass-1/pass-2 when their products exist
@@ -141,6 +144,11 @@ step_toolchain() {
     [ "$ok" = 1 ] || die "tool chain incomplete"
 }
 
+step_grovel() {
+    say "groveled constants (grovel-headers.c under the host)"
+    tools-for-build/wasm-grovel-headers.sh
+}
+
 step_host() {
     say "host (wasm/crates/sbcl-wasm-host)"
     (cd wasm && cargo build --release -p sbcl-wasm-host --bin sbcl-wasm) > "$log_dir/host.log" 2>&1 \
@@ -148,7 +156,8 @@ step_host() {
     echo "built wasm/target/release/sbcl-wasm"
 }
 
-xc_features="(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :LITTLE-ENDIAN)"
+# no dynamic loading on this target (doc/wasm-port/02-design.md, 2.9): pass-1 would add :os-provides-dlopen
+xc_features="(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :LITTLE-ENDIAN (NOT :OS-PROVIDES-DLOPEN))"
 
 step_lisp() {
     have sbcl || die "no host sbcl in PATH (run the toolchain step)"
@@ -225,13 +234,14 @@ for step in $steps; do
         env) step_env ;;
         toolchain) step_toolchain ;;
         host) step_host ;;
+        grovel) step_grovel ;;
         lisp) step_lisp ;;
         runtime) step_runtime ;;
         smoke) step_smoke ;;
         test) step_test ;;
         run) step_run ;;
         clean) step_clean ;;
-        all) step_toolchain; step_host; step_lisp; step_runtime; step_smoke ;;
+        all) step_toolchain; step_host; step_grovel; step_lisp; step_runtime; step_smoke ;;
         *) die "unknown step $step (see --help)" ;;
     esac
 done

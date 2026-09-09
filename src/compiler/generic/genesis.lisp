@@ -2143,7 +2143,7 @@ core and return a descriptor to it."
   #+linkage-space ; element 0 is 0, not a descriptor, so don't write it
   (cold-set 'sb-vm::*!initial-linkage-table*
             (vector-in-core (cdr (coerce *fname-table* 'list))))
-  #-linkage-space
+  #-(or linkage-space wasm) ; wasm: BUILD-WASM-CORE-MODULE stores table indices
   (loop with ud-tramp = (lookup-assembler-reference 'sb-vm::undefined-tramp)
         for fdefn being each hash-value of *cold-fdefn-objects*
         when (cold-null (cold-fdefn-fun fdefn))
@@ -3223,6 +3223,15 @@ raw-address words."
                           (write-wordindexed/raw
                            fn sb-vm:simple-fun-self-slot
                            (table-slot (sb-wasm-asm::wasm-function-index (nth local functions)))))))
+      ;; what code loaded at run time needs (WASM-INSTALL-CODE, wasm-vm.lisp):
+      ;; the assembly routines' table indices, and the first free index
+      (cold-set 'sb-vm::*wasm-routine-table*
+                (list-to-core
+                 (loop for name being each hash-key of routine-index using (hash-value module-index)
+                       collect (cold-cons (base-string-to-core name)
+                                          (make-fixnum-descriptor (table-slot module-index))))))
+      (cold-set 'sb-vm::*wasm-table-next*
+                (make-fixnum-descriptor (+ sb-vm::+core-table-base+ n-functions)))
       ;; fdefn raw addresses: the function's table index, or a trampoline
       (let ((closure-tramp (table-slot (routine "CLOSURE-TRAMP")))
             (undefined-tramp (table-slot (routine "UNDEFINED-TRAMP"))))

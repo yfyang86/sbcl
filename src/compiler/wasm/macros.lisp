@@ -23,6 +23,11 @@
 (defconstant +thread-float-registers-offset+ 128)  ; 32 x 8 bytes
 (defconstant +thread-error-args-offset+ 384)       ; 16 words
 (defconstant +thread-float-modes-offset+ 452)      ; software float modes word
+;;; Set by the host or the runtime; every XEP tests it and calls the
+;;; runtime's PENDING-INTERRUPT import when it is nonzero (a safe point:
+;;; the frame is set up and every register is in memory). 1 is an
+;;; interrupt request, 2 makes the runtime trace every entry.
+(defconstant +thread-interrupt-pending-offset+ 456)
 
 ;;; The scratch locals +SCRATCH-I32-LOCAL+, +SCRATCH-F32-LOCAL+ and
 ;;; +SCRATCH-F64-LOCAL+ every Lisp function starts with are defined in

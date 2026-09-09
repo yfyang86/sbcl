@@ -65,7 +65,9 @@
   system-area-pointer)
 
 (declaim (inline memmove))
-(define-alien-routine ("memmove" memmove) void ; BUG: technically returns void*
+;;; On wasm the call's Wasm type must match the C function's exactly,
+;;; and memmove returns a pointer.
+(define-alien-routine ("memmove" memmove) #+wasm system-area-pointer #-wasm void ; BUG: technically returns void*
   (dest system-area-pointer)
   (src system-area-pointer)
   (n sb-unix::size-t))

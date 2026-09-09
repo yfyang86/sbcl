@@ -149,6 +149,19 @@
       (inst i32.const (- other-pointer-lowtag fun-pointer-lowtag))
       (inst i32.add))))
 
+;;; The safe point at every entry: the runtime's PENDING-INTERRUPT when
+;;; the thread's interrupt-pending word is set (2.7; also the entry
+;;; trace). Emitted once the frame is set up, by XEP-SETUP-SP or, for
+;;; entries with &MORE arguments, by COPY-MORE-ARG.
+(defun emit-safe-point ()
+  (let ((skip (gen-label)))
+    (inst global.get +thread-global+)
+    (inst i32.load +thread-interrupt-pending-offset+)
+    (inst i32.eqz)
+    (inst jump-if skip)
+    (inst call +import-pending-interrupt+)
+    (emit-label skip)))
+
 (define-vop (xep-setup-sp)
   (:vop-var vop)
   (:generator 1
@@ -158,7 +171,8 @@
       (when nfp
         (store-reg nsp-tn
           (emit-reg-plus nsp-tn (- (bytes-needed-for-non-descriptor-stack-frame))))
-        (move nfp nsp-tn)))))
+        (move nfp nsp-tn)))
+    (emit-safe-point)))
 
 (define-vop (allocate-frame)
   (:results (res :scs (any-reg))
@@ -325,6 +339,9 @@
   (:vop-var vop)
   (:temporary (:scs (descriptor-reg) :from (:eval 0)) move-temp)
   (:temporary (:sc control-stack :offset nfp-save-offset) nfp-save)
+  ;; the callee may end in a full tail call, whose callee returns here
+  ;; with its own code object in CODE (as after any full call)
+  (:temporary (:sc control-stack :offset code-save-offset) code-save)
   (:temporary (:sc any-reg :offset ocfp-offset :from (:eval 0)) ocfp)
   (:ignore arg-locs args ocfp)
   (:info arg-locs callee target nvals)
@@ -332,12 +349,14 @@
     (let ((cur-nfp (current-nfp-tn vop)))
       (when cur-nfp
         (store-stack-tn nfp-save cur-nfp))
+      (store-stack-tn code-save code-tn)
       (let ((callee-nfp (callee-nfp-tn callee)))
         (when callee-nfp
           (maybe-load-stack-tn callee-nfp nfp)))
       (maybe-load-stack-tn cfp-tn fp)
       (note-this-location vop :call-site)
       (inst call-label target)
+      (load-stack-tn code-tn code-save)
       (default-unknown-values vop values nvals move-temp)
       (when cur-nfp
         (load-stack-tn cur-nfp nfp-save)))))
@@ -355,10 +374,12 @@
   (:ignore args save)
   (:vop-var vop)
   (:temporary (:sc control-stack :offset nfp-save-offset) nfp-save)
+  (:temporary (:sc control-stack :offset code-save-offset) code-save)
   (:generator 20
     (let ((cur-nfp (current-nfp-tn vop)))
       (when cur-nfp
         (store-stack-tn nfp-save cur-nfp))
+      (store-stack-tn code-save code-tn)
       (let ((callee-nfp (callee-nfp-tn callee)))
         (when callee-nfp
           (maybe-load-stack-tn callee-nfp nfp)))
@@ -366,6 +387,7 @@
       (note-this-location vop :call-site)
       (inst call-label target)
       (note-this-location vop :unknown-return)
+      (load-stack-tn code-tn code-save)
       (receive-unknown-values values-start nvals start count)
       (when cur-nfp
         (load-stack-tn cur-nfp nfp-save)))))
@@ -744,16 +766,21 @@
          (values :more t))
   (:ignore values return-pc)
   (:info nvals)
+  ;; the registers written here are declared so that OLD-FP (any
+  ;; any-reg) is never packed in one of them: it was once packed in NARGS,
+  ;; and the value count overwrote the frame pointer being returned to
+  (:temporary (:sc any-reg :offset nargs-offset) nargs)
+  (:temporary (:sc any-reg :offset ocfp-offset) val-ptr)
   (:vop-var vop)
   (:generator 6
     (when (= nvals 1)
       ;; This is handled in RETURN-SINGLE.
       (error "nvalues is 1"))
     (clear-number-stack vop)
-    (move ocfp-tn cfp-tn)
-    (load-immediate-word nargs-tn (fixnumize nvals))
+    (move val-ptr cfp-tn)
+    (load-immediate-word nargs (fixnumize nvals))
     (move cfp-tn old-fp)
-    (store-reg csp-tn (emit-reg-plus ocfp-tn (* nvals n-word-bytes)))
+    (store-reg csp-tn (emit-reg-plus val-ptr (* nvals n-word-bytes)))
     ;; default any argument register that was not supplied
     (loop for i from nvals below register-arg-count
           do (load-immediate-word (nth i *register-arg-tns*) nil-value))
@@ -944,7 +971,9 @@
         (when cur-nfp
           (store-reg nsp-tn
             (emit-reg-plus nsp-tn (- (bytes-needed-for-non-descriptor-stack-frame))))
-          (move cur-nfp nsp-tn))))))
+          (move cur-nfp nsp-tn)))
+      ;; entries with &MORE arguments get no XEP-SETUP-SP: the safe point is here
+      (emit-safe-point))))
 
 ;;; More args are stored consecutively on the stack, starting
 ;;; immediately at the context pointer. The context pointer is not

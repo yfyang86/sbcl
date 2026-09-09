@@ -108,7 +108,7 @@ Everything goes through `build-wasm.sh`; the platform wrappers set the
 tool paths and call it:
 
 ```
-./build-wasm-linux-x86_64.sh          # Linux: toolchain host lisp runtime smoke
+./build-wasm-linux-x86_64.sh          # Linux: toolchain host grovel lisp runtime smoke
 ./build-wasm-darwin-arm64.sh          # macOS: the same
 ./build-wasm.sh env                   # show the tool-chain settings
 ./build-wasm.sh --help
@@ -120,6 +120,7 @@ Steps, in the order `all` runs them:
 |---|---|---|---|
 | `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo; downloads missing pinned releases (`--no-download` to only check) | seconds | |
 | `host` | `cargo build --release -p sbcl-wasm-host` | 1–3 min first time | `wasm/target/release/sbcl-wasm` |
+| `grovel` | compiles `tools-for-build/grovel-headers.c` for wasm32-wasi and runs it under the host to regenerate the target's C constants (`crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp`) | seconds | the groveled file |
 | `lisp` | crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
 | `runtime` | `tools-for-build/wasm-build-runtime.sh`: genesis headers into `src/runtime/genesis/`, target symlinks, generated linkage table, `make sbcl.wasm` with wasi-sdk | 1 min | `src/runtime/sbcl.wasm` |
 | `smoke` | `sbcl.wasm --version` and `--help` under the host | seconds | |
@@ -141,6 +142,10 @@ Typical loops:
 # compiler backend change (anything under src/compiler/wasm or genesis)
 ./build-wasm.sh lisp runtime smoke
 
+# target Lisp change only (src/code, src/pcl, ...): pass-2 without pass-1.
+# --fast skips pass-2 while obj/xbuild/wasm.core exists, so remove it first
+rm -f obj/xbuild/wasm.core && ./build-wasm.sh --fast lisp runtime smoke
+
 # run the cold core with the call trace and a 60 s deadline
 SBCL_WASM_TRACE_CALLS=1 SBCL_WASM_TIMEOUT=60 ./build-wasm.sh run -- --noinform
 ```
@@ -160,6 +165,18 @@ tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --help
 tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform
 ```
 
+The cold core reaches the REPL: `--eval`, `--load`, `--non-interactive`
+and the other runtime and toplevel options work as on any SBCL, the REPL
+reads standard input, and errors enter the condition system (the
+debugger prints a backtrace; `--disable-debugger` is implied by
+`--non-interactive`). The first run compiles the core module (about
+30 s), later runs start in about 2.5 s from Wasmtime's cache:
+
+```
+tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --core obj/xbuild/wasm.core \
+    --noinform --non-interactive --eval '(print (+ 1 2))'
+```
+
 Paths are relative to the current directory, which the host preopens for
 WASI. The core module (`<core minus .core>-core.wasm`) must sit next to
 the core file; the runtime asks the host to instantiate it.
@@ -171,6 +188,9 @@ Environment variables read by the host and the runtime:
 | `SBCL_WASM_VERBOSE=1` | print the core module's compile and instantiate times |
 | `SBCL_WASM_TIMEOUT=<s>` | terminate the run after that many seconds with a Wasm backtrace and the Lisp register file |
 | `SBCL_WASM_TRACE_CALLS=1` | print every `call_into_lisp` (function, table index, argument count) |
+| `SBCL_WASM_TRACE_ENTRIES=1` | print every Lisp function entry (the callee's name or table index, NARGS, CFP, CSP, OCFP, A0, A1); decode with `tools-for-build/wasm-coreindex.py --annotate` |
+| `SBCL_WASM_TRACE_ALLOC=1` | print the frame registers at every allocation |
+| `SBCL_WASM_TRACE_ERRORS=1` | print every internal error the runtime hands to Lisp (trap kind, error code, argument descriptors, registers, the fdefn in LEXENV) |
 | `SBCL_WASM_HOST=<path>` | the host binary `wasm_run.sh` uses |
 | `WASMTIME_BACKTRACE_DETAILS=1` | Wasmtime's own richer backtraces |
 
@@ -191,8 +211,9 @@ second afterwards.
   and run by the Rust rig (`wasm/crates/sbcl-wasm-test`) against the host
   SBCL's results. Needs the after-xc core (`tests/wasm/make-after-xc.lisp`).
 - Sprint UATs (`Sprints/SprintN/uat.sh`): the acceptance checks of each
-  sprint; `UAT_FAST=1` skips the Lisp rebuilds. `Sprints/Sprint6/uat.sh`
-  is the current full check (24 checks, about 35 minutes).
+  sprint; `UAT_FAST=1` skips the Lisp rebuilds. `Sprints/Sprint7/uat.sh`
+  is the current full check (the cold core to the REPL, errors, the
+  regressions; about 35 minutes).
 
 `./build-wasm.sh test` runs level 0 and level 1.
 
@@ -203,16 +224,33 @@ second afterwards.
   backtrace with function names: runtime C functions by name, core module
   functions as their entry name (an XEP) or `lambdaN` (a body), plus the
   Lisp register file. Frames replaced by tail calls are not shown.
-- **`Sprints/Sprint6/coreindex.py`** maps a backtrace offset (`off:HEX`),
-  a module function index (`func:N`), a table index (`table:N`) or a heap
-  address (`addr:HEX`) to the Lisp function, using `obj/xbuild/wasm.map`
-  (every fdefn's function address and name, written by genesis) and the
-  core's simple-fun self slots.
-- **`Sprints/Sprint6/wasmfunc.py off:HEX`** prints the function containing
+- **`tools-for-build/wasm-coreindex.py`** maps a backtrace offset
+  (`off:HEX`), a module function index (`func:N`), a table index
+  (`table:N`) or a heap address (`addr:HEX`) to the Lisp function, using
+  `obj/xbuild/wasm.map` (every fdefn's function address and name, written
+  by genesis) and the core's simple-fun self slots; `header:HEX` lists the
+  boxed constants of the code object holding a function, by name;
+  `--annotate` decodes the table indices in a trace or backtrace read
+  from stdin.
+- **`tools-for-build/wasm-func.py off:HEX`** prints the function containing
   a code offset as text with binary offsets and marks the instruction.
-- **Internal errors** print the trap kind, error code, argument
+- **The entry trace** (`SBCL_WASM_TRACE_ENTRIES=1`): every XEP is a safe
+  point that calls the runtime when the register area's interrupt-pending
+  word is set; the runtime prints each entry when the word is 2. Local
+  functions (no XEP) do not appear; tail calls replace frames.
+- **Internal errors** enter the Lisp condition system (`internal-error`
+  with a context that snapshots the register file). Before
+  `internal_errors_enabled` is set by cold-init, or if the handler
+  returns, the runtime prints the trap kind, error code, argument
   descriptors, all registers and, for a named call, the callee's fdefn
-  name before trapping.
+  name, then stops; `SBCL_WASM_TRACE_ERRORS=1` prints the same report
+  for every error. Every trap report from the host also dumps the first
+  words of the frames at OCFP and CFP.
+- **Foreign calls** trap with "indirect call type mismatch" when the
+  Lisp declaration's signature differs from the C function's (`void`
+  versus a returned pointer, 32 versus 64-bit integers): check the
+  declaration against the C prototype; the groveled types come from
+  `./build-wasm.sh grovel`.
 - Register file layout: `src/runtime/wasm-lispregs.h` (NARGS, CSP, CFP,
   OCFP, NFP, NSP, LEXENV, CODE, LIP, CFUNC, A0–A3, L0–L5, NL0–NL7, TMP,
   RA; then floats, error arguments, unwind target, float modes, the

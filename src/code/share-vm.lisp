@@ -256,7 +256,7 @@
           (pin obj)
           (setq addr (logandc2 (get-lisp-obj-address obj) lowtag-mask)))))))
 
-#-executable-funinstances
+#-(or executable-funinstances wasm) ; wasm: wasm-vm.lisp
 (defun write-funinstance-prologue (object)
   (let ((slot  (- (ash funcallable-instance-trampoline-slot word-shift)
                   fun-pointer-lowtag)))

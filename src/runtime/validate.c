@@ -57,6 +57,7 @@ void sb_query_os_page_size() {
 #endif
 }
 
+#ifdef LISP_FEATURE_OS_PROVIDES_DLOPEN /* validate.h defines it away otherwise */
 void ensure_undefined_alien(void) {
     // Address of undefined_alien is unimportant so leave it until last to allocate
     os_vm_address_t start =
@@ -67,6 +68,7 @@ void ensure_undefined_alien(void) {
         lose("could not allocate guard page for undefined alien");
     }
 }
+#endif
 
 bool allocate_hardwired_spaces(bool hard_failp)
 {
