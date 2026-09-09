@@ -1,0 +1,8 @@
+;;;; SIGBUS handler not installed
+; compiling file "obj/wasm-build/uat-cf.lisp" (written 09 SEP 2026 03:47:52 PM):
+
+; wrote /obj/wasm-build/uat-cf.fasl
+; compilation finished in 0:00:00.019
+
+(610 (:A :B)) 
+987 

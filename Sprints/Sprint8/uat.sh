@@ -40,7 +40,7 @@ echo "== runtime"
 if ./build-wasm.sh runtime > $S/build-runtime.log 2>&1; then ok "runtime builds: src/runtime/sbcl.wasm"; else bad "runtime build (see $S/build-runtime.log)"; fi
 check "runtime build has no warnings" "! grep -q 'warning:' $S/build-runtime.log"
 check "sbcl.wasm validates" "wasm-tools validate --features all src/runtime/sbcl.wasm"
-check "the linkage table was extended for code loaded at run time" "grep -q 'linkage table: .* more symbols' $S/build-runtime.log && grep -q '\"coalesce_similar_objects\"' src/runtime/wasm-linkage-table.c"
+check "the linkage table was extended for code loaded at run time" "grep -q 'linkage table: .* more symbols' obj/wasm-build/runtime.log && grep -q '\"coalesce_similar_objects\"' src/runtime/wasm-linkage-table.c && grep -q '\"sysconf\"' src/runtime/wasm-linkage-table.c"
 check "groveled constants are up to date" "tools-for-build/wasm-grovel-headers.sh $S/groveled.lisp > $S/grovel.log 2>&1 && diff -q $S/groveled.lisp crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp && rm -f $S/groveled.lisp"
 
 echo "== the garbage collector"
@@ -50,14 +50,14 @@ ev '(let ((keep (loop for i below 100000 collect (cons i i)))) (dotimes (j 30) (
 check "allocation stress: 6 million vectors through the automatic trigger, live data intact" "grep -q 'ok=T' $S/gc-stress.txt"
 ev '(let ((h (make-hash-table :test (quote eq))) (keys (loop for i below 2000 collect (list i)))) (loop for k in keys for i from 0 do (setf (gethash k h) i)) (dotimes (j 5) (loop repeat 100000 collect (make-array 4)) (gc)) (gc :full t) (print (loop for k in keys for i from 0 always (eql (gethash k h) i))))' > $S/gc-hash.txt 2>&1
 check "an EQ hash table of 2000 keys survives five collections (rehash)" "grep -q '^T' $S/gc-hash.txt"
-ev '(let* ((live (list 1)) (w1 (make-weak-pointer live)) (w2 (make-weak-pointer (list 2)))) (gc :full t) (print (list (weak-pointer-value w1) (weak-pointer-value w2))))' > $S/gc-weak.txt 2>&1
-check "weak pointers: the live referent kept, the dead one broken" "grep -q '((1) NIL)' $S/gc-weak.txt"
+ev '(let* ((live (list 1)) (w1 (make-weak-pointer live)) (w2 (make-weak-pointer (list 2)))) (gc :full t) (print (list (weak-pointer-value w1) (weak-pointer-value w2) (car live))))' > $S/gc-weak.txt 2>&1
+check "weak pointers: the live referent kept, the dead one broken" "grep -q '((1) NIL 1)' $S/gc-weak.txt"
 ev '(progn (gc :full t) (eval (quote (defun uat-f (x) (* x 3)))) (print (uat-f 5)) (gc) (print (funcall (compile nil (quote (lambda (y) (uat-f y)))) 7)) (print (handler-case (car (read-from-string "3")) (error (e) (type-of e)))))' > $S/gc-after.txt 2>&1
 check "defun, compile and an error after collections (the store barrier and the code written flag)" "grep -q '^15' $S/gc-after.txt && grep -q '^21' $S/gc-after.txt && grep -q 'TYPE-ERROR' $S/gc-after.txt"
 
 echo "== foreign calls and files"
 ev '(print (multiple-value-list (decode-universal-time 3900000000)))' > $S/alien64.txt 2>&1
-check "a foreign call with a 64-bit integer (get_timezone's time_t) works" "grep -q '^(0 0 ' $S/alien64.txt"
+check "a foreign call with a 64-bit integer (get_timezone's time_t) works: 3900000000 is 2023-08-02 21:20:00 UTC" "grep -q '^(0 20 21 2 8 2023 2 NIL 0)' $S/alien64.txt"
 mkdir -p obj/wasm-build
 ev '(progn (with-open-file (s "obj/wasm-build/uat-cf.lisp" :direction :output :if-exists :supersede) (write (quote (defun uat-fib (n) (if (< n 2) n (+ (uat-fib (- n 1)) (uat-fib (- n 2)))))) :stream s) (terpri s) (write (quote (defvar *uat-x* (list :a :b))) :stream s)) (compile-file "obj/wasm-build/uat-cf.lisp") (load "obj/wasm-build/uat-cf.fasl") (print (list (uat-fib 15) *uat-x*)) (gc :full t) (print (uat-fib 16)))' > $S/compile-file.txt 2>&1
 check "compile-file writes a fasl with the Wasm code; load instantiates it; the functions survive a GC" "grep -q '(610 (:A :B))' $S/compile-file.txt && grep -q '^987' $S/compile-file.txt"

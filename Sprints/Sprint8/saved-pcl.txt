@@ -1,0 +1,21 @@
+;;;; SIGBUS handler not installed
+COMMON-LISP:CAR
+  [symbol]
+
+CAR names a compiled function:
+  Lambda-list: (LIST)
+  Declared type: (FUNCTION (LIST) (VALUES T &OPTIONAL))
+  Documentation:
+    Return the 1st object in a list.
+  Known attributes: foldable, flushable, unsafely-flushable
+  Source file: SYS:SRC;CODE;LIST.LISP
+
+(SETF CAR) names a compiled function:
+  Lambda-list: (NEWVAL LIST)
+  Derived type: (FUNCTION (T CONS) (VALUES T &OPTIONAL))
+  Inline proclamation: INLINE (inline expansion available)
+  Source file: SYS:SRC;CODE;SETF-FUNS.LISP
+
+(SETF CAR) has setf-expansion: SB-KERNEL:%RPLACA
+
+(#<STANDARD-CLASS COMMON-LISP:STANDARD-OBJECT> NIL) 
