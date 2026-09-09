@@ -7,6 +7,8 @@
 //! runtime needs beyond WASI:
 //!
 //!   sbcl_host.instantiate(bytes, length, register_area, table_base) -> ok
+//!   sbcl_host.run_process(spec, length) -> exit code
+//!   sbcl_host.process_id() -> the host's process id (the runtime's getpid)
 //!
 //! which compiles the Lisp module whose bytes the runtime read into its
 //! linear memory (the core module genesis writes next to the core file),
@@ -130,6 +132,10 @@ struct State {
     unwind_tag: Option<Tag>,
     /// the Lisp modules, kept alive for the life of the store
     lisp_modules: Vec<Instance>,
+    /// the store's resource limits: every compiled component is an
+    /// instance, and a long session (the test suites) makes far more than
+    /// Wasmtime's default limit of 10,000
+    limits: StoreLimits,
 }
 
 /// The (base, count) pair of a Lisp module's "sbcl.core.table" custom section.
@@ -175,6 +181,136 @@ fn runtime_export<T: Into<Extern> + Clone>(
 ) -> Result<T> {
     let e = caller.get_export(name).ctxf(|| format!("the runtime does not export {name}"))?;
     pick(e).ctxf(|| format!("the runtime's export {name} has the wrong kind"))
+}
+
+/// Map a std result's error into the host's error type with a note.
+fn host_err<T, E: std::fmt::Display>(r: std::result::Result<T, E>, what: impl FnOnce() -> String) -> Result<T> {
+    r.map_err(|e| Error::msg(format!("{}: {e}", what())))
+}
+
+/// sbcl_host.run_process: run a child process on the host and wait for
+/// it (WASI cannot spawn; SB-EXT:RUN-PROGRAM on this target builds on
+/// this, doc/wasm-port/05-testing.md 5.3). The spec is NUL-separated
+/// fields: argc, argv..., directory ("" for the current one), then for
+/// stdin, stdout and stderr a mode ("null", "inherit", "file", "append",
+/// or for stderr "output" meaning the same as stdout) and a path, then
+/// envc ("-1" to inherit the environment) and "NAME=VALUE" entries.
+/// A program ending in ".wasm" is run under this host. Returns the exit
+/// code, 128 + the signal number for a signaled child, -1 when the
+/// child could not be started.
+fn run_process(mut caller: Caller<'_, State>, ptr: u32, len: u32) -> Result<i32> {
+    use std::process::{Command, Stdio};
+    let memory = runtime_export(&mut caller, "memory", |e| e.into_memory())?;
+    let bytes = {
+        let data = memory.data(&caller);
+        let end = (ptr as usize).checked_add(len as usize).ctx("process spec out of range")?;
+        data.get(ptr as usize..end).ctx("process spec out of range")?.to_vec()
+    };
+    let fields: Vec<String> =
+        bytes.split(|&b| b == 0).map(|f| String::from_utf8_lossy(f).into_owned()).collect();
+    let mut it = fields.into_iter();
+    let mut next = || it.next().ctx("short process spec");
+    let argc: usize = host_err(next()?.parse(), || "bad argc in the process spec".into())?;
+    let mut argv = Vec::with_capacity(argc);
+    for _ in 0..argc {
+        argv.push(next()?);
+    }
+    if argv.is_empty() {
+        return Err(Error::msg("empty argv in the process spec"));
+    }
+    let dir = next()?;
+    let in_mode = next()?;
+    let in_path = next()?;
+    let out_mode = next()?;
+    let out_path = next()?;
+    let err_mode = next()?;
+    let err_path = next()?;
+    let envc: i64 = host_err(next()?.parse(), || "bad envc in the process spec".into())?;
+    let mut env = Vec::new();
+    for _ in 0..envc.max(0) {
+        env.push(next()?);
+    }
+    let mut cmd = if argv[0].ends_with(".wasm") {
+        let mut c = Command::new(host_err(std::env::current_exe(), || "the host's own path".into())?);
+        c.arg(&argv[0]);
+        c
+    } else {
+        Command::new(&argv[0])
+    };
+    cmd.args(&argv[1..]);
+    if !dir.is_empty() {
+        cmd.current_dir(&dir);
+    }
+    if envc >= 0 {
+        cmd.env_clear();
+        for e in &env {
+            if let Some((k, v)) = e.split_once('=') {
+                cmd.env(k, v);
+            }
+        }
+    }
+    fn stdio(mode: &str, path: &str, input: bool) -> Result<Stdio> {
+        Ok(match mode {
+            "null" => Stdio::null(),
+            "inherit" => Stdio::inherit(),
+            "file" if input => Stdio::from(host_err(std::fs::File::open(path), || format!("opening {path}"))?),
+            "file" => Stdio::from(host_err(std::fs::File::create(path), || format!("creating {path}"))?),
+            "append" => Stdio::from(host_err(
+                std::fs::OpenOptions::new().append(true).create(true).open(path),
+                || format!("opening {path}"),
+            )?),
+            _ => return Err(Error::msg(format!("bad stdio mode {mode}"))),
+        })
+    }
+    cmd.stdin(stdio(&in_mode, &in_path, true)?);
+    if err_mode == "output" {
+        // the same file (or the inherited stream) for both
+        match out_mode.as_str() {
+            "inherit" => {
+                cmd.stdout(Stdio::inherit());
+                cmd.stderr(Stdio::inherit());
+            }
+            "null" => {
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+            }
+            _ => {
+                let f = host_err(
+                    if out_mode == "append" {
+                        std::fs::OpenOptions::new().append(true).create(true).open(&out_path)
+                    } else {
+                        std::fs::File::create(&out_path)
+                    },
+                    || format!("creating {out_path}"),
+                )?;
+                let f2 = host_err(f.try_clone(), || "duplicating the output file".into())?;
+                cmd.stdout(Stdio::from(f));
+                cmd.stderr(Stdio::from(f2));
+            }
+        }
+    } else {
+        cmd.stdout(stdio(&out_mode, &out_path, false)?);
+        cmd.stderr(stdio(&err_mode, &err_path, false)?);
+    }
+    match cmd.status() {
+        Ok(status) => {
+            if let Some(code) = status.code() {
+                Ok(code)
+            } else {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    Ok(128 + status.signal().unwrap_or(0))
+                }
+                #[cfg(not(unix))]
+                Ok(-1)
+            }
+        }
+        Err(e) => {
+            eprintln!("sbcl-wasm: run_process {}: {e}", argv[0]);
+            Ok(-1)
+        }
+    }
 }
 
 /// sbcl_host.instantiate: see the module comment.
@@ -264,19 +400,37 @@ fn main() -> Result<()> {
     let mut linker: Linker<State> = Linker::new(&engine);
     wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s| &mut s.wasi)?;
     linker.func_wrap("sbcl_host", "instantiate", instantiate)?;
+    linker.func_wrap("sbcl_host", "run_process", run_process)?;
+    // the host's process id, for the runtime's getpid (WASI has none)
+    linker.func_wrap("sbcl_host", "process_id", |_: Caller<'_, State>| -> i32 { std::process::id() as i32 })?;
     linker.define_unknown_imports_as_traps(&module)?;
     let mut argv = vec![path.clone()];
     argv.extend(rest);
+    // The whole file system is visible with the host's paths, and the
+    // host's working directory is passed as PWD, which the runtime makes
+    // wasi-libc's emulated working directory (os_init): the runtime's
+    // relative paths, the tests' TEST_DIRECTORY and /tmp then work as on
+    // any other target.
+    let cwd = host_err(std::env::current_dir(), || "the current directory".into())?;
     let wasi = WasiCtxBuilder::new()
         .inherit_stdio()
         .inherit_env()
+        .env("PWD", cwd.to_string_lossy())
         .args(&argv)
-        .preopened_dir(".", ".", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?
+        .preopened_dir("/", "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?
         .build_p1();
+    let limits = StoreLimitsBuilder::new()
+        .instances(usize::MAX)
+        .tables(usize::MAX)
+        .memories(usize::MAX)
+        .table_elements(usize::MAX)
+        .memory_size(usize::MAX)
+        .build();
     let mut store = Store::new(
         &engine,
-        State { wasi, register_area: None, memory: None, unwind_tag: None, lisp_modules: Vec::new() },
+        State { wasi, register_area: None, memory: None, unwind_tag: None, lisp_modules: Vec::new(), limits },
     );
+    store.limiter(|state| &mut state.limits);
 
     // Ctrl-C: count presses; the epoch tick makes running Wasm code call
     // the deadline callback below.

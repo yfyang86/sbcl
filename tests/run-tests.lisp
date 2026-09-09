@@ -270,6 +270,10 @@
       sb-c::*compile-elapsed-time*
       sb-c::*compile-file-elapsed-time*
       sb-c::*phash-lambda-cache*
+      ;; the WebAssembly port: every compilation installs a module
+      ,(maybe "SB-VM" "*WASM-LOADED-MODULES*")
+      ,(maybe "SB-VM" "*WASM-TABLE-NEXT*")
+      ,(maybe "SB-WASM-ASM" "*CORE-MODULE-INFO*")
       ,(maybe "SB-IMPL" "*RUN-GC-HOOKS*")
       ,(maybe "SB-VM" "*FNAME-MAP-AVAILABLE-ELTS*")
       ,(maybe "SB-VM" "*FNAME-MAP-OBSERVED-GC-EPOCH*")

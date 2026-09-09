@@ -17,9 +17,11 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 { grep -rhoE 'extern-alien "[A-Za-z_0-9]+"|alien-routine \(?"[A-Za-z_0-9]+"|alien-variable \(?"[A-Za-z_0-9]+"' \
       src/code src/pcl src/compiler/generic src/compiler/*.lisp contrib 2>/dev/null \
       | grep -oE '"[A-Za-z_0-9]+"' | tr -d '"'
-  grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null || true
+  grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null | awk '{print $1}' || true
 } | sort -u > "$tmp/wanted"
-grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null | sort -u > "$tmp/listed" || true
+grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null | awk '{print $1}' | sort -u > "$tmp/listed" || true
+# names listed with a second word "data" are variables
+grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null | awk '$2 == "data" {print $1}' | sort -u > "$tmp/listed-data" || true
 # what the runtime defines (functions T/t/W/w, data D/B/R/C and their
 # lowercase) or only imports from libc (U), minus the table itself; a
 # definition wins over a reference
@@ -34,10 +36,15 @@ while read -r name; do
     grep -qx "$name" "$tmp/present" && continue
     if grep -qx "$name" "$tmp/functions"; then kind=function
     elif grep -qx "$name" "$tmp/data"; then kind=data
+    elif grep -qx "$name" "$tmp/listed-data"; then
+        kind=data
     elif grep -qx "$name" "$tmp/imported"; then
         # a libc symbol: functions, except the few data ones
         case "$name" in errno|environ|stdin|stdout|stderr) continue ;; esac
         kind=function
+    elif grep -qx "$name" "$tmp/listed-data"; then
+        # listed as a variable in wasm-linkage-extra.txt (libc's environ)
+        kind=data
     elif grep -qx "$name" "$tmp/listed"; then
         # listed in wasm-linkage-extra.txt but not referenced by the runtime:
         # a libc function (the linker resolves it), or an import the host

@@ -289,6 +289,11 @@ void prepare_readonly_space(int purify, int print)
     // Add a random delimiter object between symbol-names and everything else.
     // APROPOS-LIST uses this to detect the end of the strings.
     *read_only_space_free_pointer = SIMPLE_VECTOR_WIDETAG; // length 0
+#ifndef LISP_FEATURE_64_BIT
+    // the length is a word of its own on 32-bit targets, and this one
+    // may be reused space
+    read_only_space_free_pointer[1] = 0;
+#endif
     read_only_space_free_pointer += 2;
 
     // 3. Forward everything else

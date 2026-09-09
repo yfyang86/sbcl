@@ -31,6 +31,10 @@ SBCL_CORE="${TEST_SBCL_CORE:-$SBCL_PWD/../output/sbcl.core}"
 # On Windows, the runtime is sbcl.exe; on Unix, it's sbcl
 if [ -f "$SBCL_PWD/../src/runtime/sbcl.exe" ]; then
     SBCL_RUNTIME="${TEST_SBCL_RUNTIME:-$SBCL_PWD/../src/runtime/sbcl.exe}"
+elif [ -f "$SBCL_PWD/../src/runtime/sbcl.wasm" ] && [ ! -x "$SBCL_PWD/../src/runtime/sbcl" ]; then
+    # the WebAssembly port: the runtime is a module run under the host
+    # (tools-for-build/wasm-sbcl.sh; doc/wasm-port/05-testing.md, 5.3)
+    SBCL_RUNTIME="${TEST_SBCL_RUNTIME:-$SBCL_PWD/../tools-for-build/wasm-sbcl.sh}"
 else
     SBCL_RUNTIME="${TEST_SBCL_RUNTIME:-$SBCL_PWD/../src/runtime/sbcl}"
 fi

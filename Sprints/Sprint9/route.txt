@@ -1,0 +1,3 @@
+;;;; SIGBUS handler not installed
+
+(#P"/home/user/sbcl/" #P"/home/user/sbcl/src/runtime/sbcl.wasm" :WASM32 :WASI) 

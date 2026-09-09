@@ -224,6 +224,46 @@ second afterwards.
 
 `./build-wasm.sh test` runs level 0 and level 1.
 
+- The saved core (`output/sbcl.core`, from `./build-wasm.sh warm`) is
+  what the build tree's scripts run: `run-sbcl.sh`, `tests/subr.sh`
+  (so every `tests/*.test.sh`), `tests/parallel-exec.sh` and
+  `make-target-contrib.sh` run the runtime through
+  `tools-for-build/wasm-sbcl.sh`, the port's "sbcl binary" (the module
+  under the host, with the given arguments). The host makes the whole
+  file system visible with its own paths and the runtime works in the
+  host's directory, and `sb-ext:run-program` runs children on the host
+  (`sbcl_host.run_process`: synchronous, stdio as files or inherited;
+  a `.wasm` program runs under the host), which is how the impure and
+  shell tests get their child SBCL. The runtime's `getpid` is the
+  host's process id (`sbcl_host.process_id`; WASI has none), so
+  concurrent runtimes name their scratch files apart.
+- The regression suite: `tests/run-tests.sh [files]` as on any target,
+  or all files in parallel with `tests/wasm-parallel-exec.sh [-j N]`
+  (`./build-wasm.sh regress`), which logs each file separately and
+  summarizes; `Sprints/Sprint9/baseline.sh REGRESS-LOG` writes the
+  baseline report (`doc/wasm-port/baselines/`). `SBCL_WASM_TEST_TIMEOUT`
+  (seconds, default 1800) bounds each file.
+- The ANSI suite: `tests/ansi-tests.sh` (`./build-wasm.sh ansi`; the
+  script checks out `tests/ansi-test`) hands over to
+  `tests/wasm-ansi-tests.sh`: the suite is loaded once into a saved
+  core (`tests/ansi-test/wasm-ansi.core`) and the tests run one at a
+  time (`tests/wasm-ansi-driver.lisp`), each result written to
+  `tests/ansi-test/results.txt` (`NAME PASS|FAIL|CRASHED`) before the
+  next starts, so a trap in one test ends the process, not the run: the
+  script restarts it and it resumes from the next test (a test that
+  crashed is retried once, then recorded as `CRASHED`). Output in
+  `tests/ansi-test/wasm-ansi.log`; the summary at the end;
+  `SBCL_WASM_ANSI_TIMEOUT` (seconds, default 1800) bounds one process.
+  `Sprints/Sprint9/baseline.sh REGRESS-LOG [ANSI-RESULTS]` adds its
+  results to the baseline report.
+- The contribs: `./build-wasm.sh contrib` builds the pure-Lisp ones into
+  `obj/sbcl-home/contrib` (the blocklist is in `build-wasm.sh`);
+  `(require :sb-md5)` and the others work in the saved core.
+- `disassemble` prints a function's Wasm instructions (body and module
+  offsets, the latter what a trap backtrace reports);
+  `(sb-wasm-asm::disassemble-table-index N)` does the same for a table
+  index.
+
 ## 6. Debugging
 
 - **Backtraces.** Every trap (a Lisp internal error ends in an

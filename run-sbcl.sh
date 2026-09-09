@@ -16,7 +16,8 @@ set -e
 this="$0"
 
 build_directory_p(){
-    [ -x "$1"/src/runtime/sbcl -a -f "$1"/output/sbcl.core ];
+    [ -x "$1"/src/runtime/sbcl -a -f "$1"/output/sbcl.core ] ||
+    [ -f "$1"/src/runtime/sbcl.wasm -a -f "$1"/output/sbcl.core ];
 }
 
 # OSX 10.8 readlink doesn't have -f
@@ -75,10 +76,16 @@ fi
 
 if build_directory_p "$BASE"; then
     export SBCL_HOME
-    if [ "$CORE_DEFINED" = "no" ]; then
-	SBCL_HOME="$BASE"/obj/sbcl-home exec "$BASE"/src/runtime/sbcl --core "$CORE" "$@"
+    # the WebAssembly port: the runtime is a module run under the host
+    if [ ! -x "$BASE"/src/runtime/sbcl ] && [ -f "$BASE"/src/runtime/sbcl.wasm ]; then
+        RUNTIME="$BASE"/tools-for-build/wasm-sbcl.sh
     else
-	SBCL_HOME="$BASE"/obj/sbcl-home exec "$BASE"/src/runtime/sbcl "$@"
+        RUNTIME="$BASE"/src/runtime/sbcl
+    fi
+    if [ "$CORE_DEFINED" = "no" ]; then
+	SBCL_HOME="$BASE"/obj/sbcl-home exec "$RUNTIME" --core "$CORE" "$@"
+    else
+	SBCL_HOME="$BASE"/obj/sbcl-home exec "$RUNTIME" "$@"
     fi
 else
     echo "No built SBCL here ($BASE): run 'sh make.sh' first!"

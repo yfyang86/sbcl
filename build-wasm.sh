@@ -19,6 +19,11 @@
 #   warm       the warm load: the cold core compiles src/cold/warm.lisp,
 #              a fresh cold core loads it and saves output/sbcl.core
 #              (tools-for-build/wasm-warm.sh)
+#   contrib    the pure-Lisp contribs (make-target-contrib.sh with the
+#              blocklist of the ones needing C, grovel, threads or sockets)
+#   regress    tests/run-tests.sh across the files in parallel
+#              (tests/wasm-parallel-exec.sh; about an hour)
+#   ansi       tests/ansi-tests.sh (the ANSI suite, checked out by the script)
 #   smoke      sbcl.wasm --version and --help under the host
 #   test       level-0 and level-1 test suites (level-1 rebuilds the
 #              after-xc core, about 10 minutes)
@@ -226,6 +231,32 @@ step_warm() {
     tools-for-build/wasm-warm.sh || die "warm load failed"
 }
 
+# contribs that need a C compiler, the groveler, threads, sockets or
+# signals are not built on this target (doc/wasm-port/04-sprints.md,
+# plan Sprint 8 and Sprint 13)
+wasm_contrib_blocklist="sb-posix sb-bsd-sockets sb-sprof sb-capstone sb-gmp sb-mpfr sb-perf sb-simd sb-grovel sb-simple-streams sb-manual"
+step_contrib() {
+    say "contribs (blocklist: $wasm_contrib_blocklist)"
+    [ -f output/sbcl.core ] || die "no output/sbcl.core: run the warm step first"
+    SBCL_WASM_CONTRIB_BLOCKLIST="$wasm_contrib_blocklist" sh make-target-contrib.sh > "$log_dir/contrib.log" 2>&1 \
+        || { tail -20 "$log_dir/contrib.log"; die "contrib build failed (see $log_dir/contrib.log)"; }
+    ls obj/sbcl-home/contrib/*.fasl | sed 's|.*/||' | tr '\n' ' '; echo
+}
+
+step_regress() {
+    say "the regression suite (tests/wasm-parallel-exec.sh -j $jobs)"
+    [ -f output/sbcl.core ] || die "no output/sbcl.core: run the warm step first"
+    (cd tests && sh ./wasm-parallel-exec.sh -j "$jobs" $runargs) | tee "$log_dir/regress.log"
+}
+
+step_ansi() {
+    say "the ANSI suite (tests/ansi-tests.sh, one test at a time in restarted processes)"
+    [ -f output/sbcl.core ] || die "no output/sbcl.core: run the warm step first"
+    (cd tests && sh ./ansi-tests.sh) > "$log_dir/ansi.log" 2>&1 \
+        || { tail -20 "$log_dir/ansi.log"; die "ansi-tests.sh failed (see $log_dir/ansi.log)"; }
+    tail -8 "$log_dir/ansi.log"
+}
+
 step_smoke() {
     say "smoke test"
     [ -x wasm/target/release/sbcl-wasm ] || step_host
@@ -263,6 +294,9 @@ step_clean() {
 
 for step in $steps; do
     case "$step" in
+        contrib) step_contrib ;;
+        regress) step_regress ;;
+        ansi) step_ansi ;;
         env) step_env ;;
         toolchain) step_toolchain ;;
         host) step_host ;;

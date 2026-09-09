@@ -10,3 +10,12 @@ undefined_alien_function
 # libc functions the tests call (tests/test-util.lisp) that the runtime does not
 sysconf
 setenv
+# the host's child-process import (RUN-PROGRAM)
+wasm_run_process
+# wasi-libc's environment (POSIX-ENVIRON; RUN-PROGRAM passes it to children):
+# a variable, listed as such
+environ data
+# the save-time passes, callable from Lisp for debugging (Sprints/Sprint9)
+prepare_readonly_space
+verify_heap
+move_rospace_to_dynamic

@@ -578,7 +578,24 @@ void sb_nanosleep_float(float seconds) {
  * acording to git revision 9304704f68 */
 int sb_getrusage(int who, struct rusage *rusage)
 {
+#ifdef LISP_FEATURE_WASM
+        /* wasi-libc's emulation asks for the process CPU-time clock,
+         * which the host does not provide; a single-threaded runtime's
+         * CPU time is the time it has run: the monotonic clock since
+         * the first call, in ru_utime, and nothing else. */
+        static struct timespec start;
+        struct timespec now;
+        (void)who;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return -1;
+        if (!start.tv_sec && !start.tv_nsec) start = now;
+        memset(rusage, 0, sizeof *rusage);
+        long long ns = (now.tv_sec - start.tv_sec) * 1000000000LL + (now.tv_nsec - start.tv_nsec);
+        rusage->ru_utime.tv_sec = ns / 1000000000LL;
+        rusage->ru_utime.tv_usec = (ns % 1000000000LL) / 1000;
+        return 0;
+#else
         return getrusage(who, rusage);
+#endif
 }
 
 int sb_gettimeofday(struct timeval *tp, void *tz)
