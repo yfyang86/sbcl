@@ -192,6 +192,11 @@ Environment variables read by the host and the runtime:
 | `SBCL_WASM_TRACE_ALLOC=1` | print the frame registers at every allocation |
 | `SBCL_WASM_VERIFY_GC=1` | run the collector's heap verifier before and after every collection; it reports each pointer to a stale object (`Ptr ... sees ...`) and code objects written without the "written" flag |
 | `SBCL_WASM_TRACE_AFTER_GC=1` | switch the entry trace on at the end of the first collection (the trace from startup is too long to be useful) |
+| `SBCL_WASM_CHECK_STACK=1` | watch the bottom 2 KiB of the control stack (the toplevel frames) at allocation slow paths, safe points, module instantiations, runtime-to-Lisp calls and internal errors, and report the first time live words there turn to zero |
+| `SBCL_WASM_CHECK_FDEFNS=N` | after the core is loaded, report every fdefn raw-addr, simple-fun self slot and alien linkage cell at or above table index N (for a saved core whose calls trap out of bounds) |
+| `SBCL_WASM_DUMP_MODULE=N` | write the saved run-time module whose table range starts at or below N to `obj/wasm-build/module-BASE.wasm`, for `tools-for-build/wasm-func.py --module` |
+| `SBCL_WASM_DUMP_INSTALLED=1` | write every module installed at run time (`compile`, `load`) to `obj/wasm-build/installed-BASE.wasm` |
+| `SBCL_WASM_WARM_HEAP=SIZE` | the dynamic space of the two warm-load phases (`tools-for-build/wasm-warm.sh`; default `1536MB`, the 512 MiB default fills up during the PCL compile) |
 | `SBCL_WASM_TRACE_ERRORS=1` | print every internal error the runtime hands to Lisp (trap kind, error code, argument descriptors, registers, the fdefn in LEXENV) |
 | `SBCL_WASM_HOST=<path>` | the host binary `wasm_run.sh` uses |
 | `WASMTIME_BACKTRACE_DETAILS=1` | Wasmtime's own richer backtraces |

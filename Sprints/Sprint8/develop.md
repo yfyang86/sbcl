@@ -280,3 +280,57 @@ leaves behind.
     collection and ran out of the 512 MB heap; the machine-code targets
     never notice with an 8 GB dynamic space. `wasm_load_core_module`
     arms the trigger after the core is loaded.
+16. **The runtime entered a closure with the closure in CODE.** The
+    saved core's restart function is the closure `start-lisp` makes;
+    `call_into_lisp` resolved its simple-fun for the table index but
+    left the closure itself in CODE, from which the XEP derives the code
+    object (as after a full call, which puts the simple-fun there). The
+    closure's first named call read its "fdefn" from garbage and trapped
+    with an out-of-range table index; the cold core's entry point is a
+    simple-fun, so this never showed. `call_into_lisp` now puts the
+    resolved simple-fun in CODE.
+
+    Finding it: `SBCL_WASM_CHECK_FDEFNS=LIMIT` (every fdefn raw-addr,
+    simple-fun self and linkage cell at or above LIMIT after the core
+    is loaded) showed the saved heap clean, so the index was computed at
+    run time; `SBCL_WASM_DUMP_MODULE=INDEX` wrote the restart closure's
+    saved module and `tools-for-build/wasm-func.py --module` showed the
+    named-call sequence reading constant 0 through CODE.
+17. **A trap at the end of one warm compile, not reproduced.** One
+    compile phase (512 MiB heap) ended with `call_indirect` through a
+    null table slot in `process-eval/load-options`'s local function,
+    after the `--eval` had completed; the register dump showed that
+    function's frame, near the bottom of the control stack, entirely
+    zero (its saved CODE slot read 0, so the fdefn "constant" read from
+    address 9 was 0 and the raw-addr 0 named table slot 0). Three later
+    runs of the same configuration, and runs with a 1.5 GiB heap and
+    with the heap verifier, completed. `SBCL_WASM_CHECK_STACK=1` now
+    watches the bottom 2 KiB of the control stack at allocation slow
+    paths, safe points, module instantiations, runtime-to-Lisp calls and
+    internal errors and reports the first time live words there turn to
+    zero; the cause is an open item (verify.md).
+18. **The run-time foreign-symbol lookup returned a linkage cell's
+    address.** `foreign-symbol-address` (and so `foreign-symbol-sap`
+    called as a function, which the simple evaluator does for
+    `(extern-alien "sysconf" ...)` in `tests/test-util.lisp`) returns
+    "always a linkage-table address": on the machine-code targets a
+    cell is a trampoline, so calling it works. Here a cell holds the
+    function's table index (or a variable's address), which the
+    `foreign-symbol-sap` and `foreign-symbol-dataref-sap` VOPs load; the
+    call-out then used the cell's address as a table index and trapped
+    out of bounds. The function now returns the cell's content on this
+    target, as the VOPs do. (`SBCL_WASM_DUMP_INSTALLED=1` wrote the
+    module the evaluator compiled; NL1 at the trap was the cell's
+    address, `ALIEN_LINKAGE_SPACE_START + 4 * 183`.)
+
+## 5. The saved core
+
+`tools-for-build/wasm-warm.sh` (`./build-wasm.sh warm`) with the 1.5 GiB
+heap: the compile phase (68 files) takes about 8 minutes on an idle
+machine, the load and save phase about 6; `output/sbcl.core` is 66 MB
+and keeps the 7,125 modules compiled at run time (27 MB of module
+bytes) in `*wasm-loaded-modules*`, which `wasm_load_core_module`
+instantiates again at startup. The saved core reaches its REPL in 3.2 s
+against 1.5 s for the cold core (Wasmtime's cache warm), and `defclass`,
+`make-instance`, `compile`, `load` of a source file, hash tables and the
+reader work in it.

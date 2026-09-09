@@ -12,7 +12,7 @@ Exit criterion: `output/sbcl.core` is produced; the saved core restarts
 and reaches the REPL; `tests/gc-smoketest.pure.lisp` and
 `tests/coreparse.pure.lisp` pass.
 
-Status: in progress. Records: `develop.md`, `test.md` (UAT), `verify.md`;
+Status: done, pending the UAT (`uat.sh`; `test.md` has the record). Records: `develop.md`, `test.md` (UAT), `verify.md`;
 script: `uat.sh`. Build and run with `build-wasm.sh` (see
 `WASM-Manual.md`); the sprint branch `sprint8` is merged into `wasm-dev`
 with `--no-ff` once `uat.sh` is green.

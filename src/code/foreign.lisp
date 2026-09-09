@@ -131,7 +131,13 @@ Returns a secondary value T for historical reasons.
 The returned address is always a linkage-table address.
 Symbols are entered into the linkage-table if they aren't there already."
   (let ((index (ensure-alien-linkage-index name datap)))
-    (values (sb-vm::alien-linkage-index-to-addr index datap) t)))
+    (values #-wasm (sb-vm::alien-linkage-index-to-addr index datap)
+            ;; A linkage cell is not a trampoline on this target: it holds
+            ;; the function's table index or the variable's address, which
+            ;; is what the FOREIGN-SYMBOL-SAP and FOREIGN-SYMBOL-DATAREF-SAP
+            ;; VOPs load, so the function returns the same.
+            #+wasm (sap-ref-word (int-sap (sb-vm::alien-linkage-index-to-addr index datap)) 0)
+            t)))
 
 (defun foreign-symbol-sap (symbol &optional datap)
   "Returns a SAP corresponding to the foreign symbol. DATAP must be true if the

@@ -69,12 +69,16 @@ else
   check "output/sbcl.core present (warm load skipped)" "ls output/sbcl.core output/sbcl-core.wasm"
 fi
 WARM="src/runtime/sbcl.wasm --core output/sbcl.core --noinform --no-sysinit --no-userinit --non-interactive"
-SBCL_WASM_VERBOSE=1 SBCL_WASM_TIMEOUT=900 $RUN $WARM --eval '(print (+ 1 2))' > $S/saved-core.txt 2>&1
+SBCL_WASM_TIMEOUT=900 $RUN src/runtime/sbcl.wasm --core output/sbcl.core --no-sysinit --no-userinit --non-interactive --eval '(print (+ 1 2))' > $S/saved-core.txt 2>&1
 check "the saved core restarts (its run-time modules instantiated again) and evaluates" "grep -q 'instantiating .* saved modules' $S/saved-core.txt && grep -q '^3 *$' $S/saved-core.txt"
 SBCL_WASM_TIMEOUT=900 $RUN $WARM --eval '(print (list (find-class (quote standard-object)) (describe (quote car))))' > $S/saved-pcl.txt 2>&1
 check "PCL and the warm functions are there (find-class, describe)" "grep -q 'STANDARD-CLASS COMMON-LISP:STANDARD-OBJECT' $S/saved-pcl.txt"
 echo "(defun fib (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (print (fib 20)) (terpri)" | SBCL_WASM_TIMEOUT=900 $RUN src/runtime/sbcl.wasm --core output/sbcl.core --noinform --no-sysinit --no-userinit --disable-debugger > $S/saved-repl.txt 2>&1
 check "the saved core's REPL reads stdin, compiles and calls (fib 20 = 6765)" "grep -q '6765' $S/saved-repl.txt"
+SBCL_WASM_TIMEOUT=900 $RUN $WARM --eval '(progn (defclass uat-c () ((a :initarg :a :accessor uat-a))) (defmethod uat-m ((x uat-c)) (* 2 (uat-a x))) (print (list (uat-m (make-instance (quote uat-c) :a 21)) (funcall (compile nil (quote (lambda (x) (uat-a x)))) (make-instance (quote uat-c) :a 5)))))' > $S/saved-clos.txt 2>&1
+check "CLOS in the saved core: defclass, defmethod, an accessor through compile" "grep -q '(42 5)' $S/saved-clos.txt"
+SBCL_WASM_TIMEOUT=900 $RUN $WARM --eval '(print (list (eval (quote (sb-alien:alien-funcall (sb-alien:extern-alien "os_get_errno" (function sb-alien:int))))) (eval (quote (sb-alien:extern-alien "gencgc_verbose" sb-alien:int)))))' > $S/saved-alien.txt 2>&1
+check "foreign calls and variables from the evaluator in the saved core (the run-time foreign-symbol lookup)" "grep -q '^([0-9]* [0-9]*)' $S/saved-alien.txt"
 # one pure test file, the way tests/run-tests.lisp's pure-runner loads it: test-util
 # (WITH-TEST) in a fresh package using TEST-UTIL, then the failures list
 run_pure_test() {
