@@ -15,3 +15,7 @@ wasm_run_process
 # wasi-libc's environment (POSIX-ENVIRON; RUN-PROGRAM passes it to children):
 # a variable, listed as such
 environ data
+# the save-time passes, callable from Lisp for debugging (Sprints/Sprint9)
+prepare_readonly_space
+verify_heap
+move_rospace_to_dynamic

@@ -67,8 +67,11 @@
           ;; only for src/runtime/run-program.c
           :OS-PROVIDES-CLOSE-RANGE-WRAPPER)"))
        (public-features
-        (cons
+        (list*
          sb-impl::!sbcl-architecture
+         ;; the WebAssembly port: the word size and the platform
+         ;; (doc/wasm-port/05-testing.md, 5.2)
+         #+wasm :wasm32 #+wasm :wasm64 #+wasm :wasi
          (read-from-string "
           (:COMMON-LISP :SBCL :ANSI-CL :IEEE-FLOATING-POINT
            :64-BIT ; choice of word size. 32-bit if absent
