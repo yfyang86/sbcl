@@ -481,6 +481,15 @@ void wasm_load_core_module(const char *core_path)
             free(entries);
         }
     }
+    /* gencgc arms auto_gc_trigger only at the end of a collection, and a
+     * cold image collects nothing until asked to (REINIT's GC-REINIT does
+     * that in a saved core): arm it now, so that allocation triggers the
+     * first collection instead of filling the heap. */
+    {
+        extern os_vm_size_t auto_gc_trigger, bytes_allocated;
+        if (!auto_gc_trigger)
+            auto_gc_trigger = bytes_allocated + bytes_consed_between_gcs;
+    }
     if (getenv("SBCL_WASM_TRACE_ENTRIES"))
         *interrupt_pending_word() |= WASM_PENDING_TRACE;
     /* SBCL_WASM_VERIFY_GC=1: the collector's heap verifier runs before and

@@ -538,6 +538,13 @@ void gc_heap_exhausted_error_or_lose (sword_t available, sword_t requested)
                 ("Signalling HEAP-EXHAUSTED in a WITHOUT-INTERRUPTS.");
         /* available and requested should be double word aligned, thus
            they can passed as fixnums and shifted later. */
+#ifdef LISP_FEATURE_WASM
+        if (getenv("SBCL_WASM_VERBOSE"))
+        fprintf(stderr, "sbcl-wasm: heap-exhausted-error: symbol %#x fdefn %#x function %#x\n",
+                (unsigned)INTERFACE_SYMBOLS[HEAP_EXHAUSTED_ERROR_fname_index],
+                (unsigned)SYMBOL(INTERFACE_SYMBOLS[HEAP_EXHAUSTED_ERROR_fname_index])->fdefn,
+                (unsigned)StaticSymbolFunction(HEAP_EXHAUSTED_ERROR));
+#endif
         funcall2(StaticSymbolFunction(HEAP_EXHAUSTED_ERROR), available, requested);
         lose("HEAP-EXHAUSTED-ERROR fell through");
     }

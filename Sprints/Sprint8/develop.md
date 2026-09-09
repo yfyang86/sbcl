@@ -272,3 +272,11 @@ leaves behind.
     MB after its last collection (`SBCL_WASM_VERBOSE=1` shows the
     collections). The safe point now runs the collection when either
     the bit or `*gc-pending*` says so (and `*gc-inhibit*` is NIL).
+15. **No collection until the first explicit one.** gencgc arms
+    `auto_gc_trigger` at the end of a collection only, and a cold image
+    collects nothing until something calls `gc` (`reinit`'s `gc-reinit`
+    does, on a saved core's restart, with a comment wondering why it is
+    needed). Loading the 68 warm fasls consed 480 MB without a
+    collection and ran out of the 512 MB heap; the machine-code targets
+    never notice with an 8 GB dynamic space. `wasm_load_core_module`
+    arms the trigger after the core is loaded.
