@@ -205,7 +205,10 @@
         (code-obj total-nwords debug-info n-simple-funs)
         :copy (%byte-blt bytes 0 (code-instructions code-obj) 0 (length bytes))
         :fixup (setq named-call-fixups
-                     (apply-core-fixups code-obj fixup-notes retained-fixups real-code-obj)))
+                     ;; wasm: the code's references live in the Wasm blob
+                     ;; and are resolved by WASM-INSTALL-CODE below
+                     #+wasm (progn fixup-notes retained-fixups real-code-obj nil)
+                     #-wasm (apply-core-fixups code-obj fixup-notes retained-fixups real-code-obj)))
 
     (binding* ((alloc-points (asm-alloc-sites assembly) :exit-if-null))
       #+(and x86-64 sb-thread)
@@ -252,6 +255,10 @@
                         (%coerce-name-to-fun payload)))))))))
 
       #+darwin-jit (assign-code-constants code-obj boxed-data))
+
+    ;; wasm: the functions become a module of their own, and the self
+    ;; slots their table indices (after ASSIGN-SIMPLE-FUN-SELF above)
+    #+wasm (sb-vm::wasm-install-code code-obj (asm-wasm-code assembly))
 
     (sb-fasl::possibly-log-new-code code-obj "core")))
 

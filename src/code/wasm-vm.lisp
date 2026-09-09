@@ -76,12 +76,16 @@
          (kind (sap-ref-32 sap 0))
          (code (sap-ref-32 sap 4))
          (nargs (sap-ref-32 sap 8)))
+    ;; the third value is the trap number, which INTERNAL-ERROR compares
+    ;; with CERROR-TRAP
     (if (= kind invalid-arg-count-trap)
         (values #.(error-number-or-lose 'invalid-arg-count-error)
-                '(#.arg-count-sc))
+                '(#.arg-count-sc)
+                kind)
         (values code
                 (loop for i below nargs
-                      collect (sap-ref-32 sap (+ 12 (* i 4))))))))
+                      collect (sap-ref-32 sap (+ 12 (* i 4))))
+                kind))))
 
 ;;; CONTEXT-CALL-FUNCTION
 
@@ -98,6 +102,128 @@
 ;;;; code object (FOP-WASM-CODE). Instantiating them as a module of their
 ;;;; own needs the host's instantiate import, which the runtime provides
 ;;;; from Sprint 6 on.
+;;;; Loading code at run time (doc/wasm-port/02-design.md, 2.2).
+;;;;
+;;;; A code object's functions arrive as the blob the compiler produced
+;;;; (SERIALIZE-WASM-CODE): from a fasl (FOP-WASM-CODE) or from an
+;;;; in-memory compile (MAKE-CORE-COMPONENT). They become a module of
+;;;; their own, built the way genesis builds the core module: the
+;;;; patches resolved (function references within the module, assembly
+;;;; routines imported from the shared table by index, foreign symbols
+;;;; through their linkage cells, layout ids), the functions installed in
+;;;; the shared table at a fresh range, and the host asked to instantiate
+;;;; the module against the runtime's memory, table and register area.
+
+;;; ("NAME" . table-index) of the core module's assembly routines, and the
+;;; first free table index; both set by genesis (BUILD-WASM-CORE-MODULE).
+(defvar *wasm-routine-table*)
+(defvar *wasm-table-next*)
+
+(defun wasm-routine-table-index (name)
+  (or (cdr (assoc name *wasm-routine-table* :test #'string=))
+      (error "assembly routine ~A is not in the core module" name)))
+
+(defun wasm-layout-id-of (qualified-name)
+  ;; "PACKAGE::NAME" of the classoid (func-asm.lisp, LOADER-FIXUPS)
+  (let* ((colons (search "::" qualified-name))
+         (symbol (find-symbol (subseq qualified-name (+ colons 2))
+                              (subseq qualified-name 0 colons))))
+    (sb-kernel::ensure-layout-id (or symbol (error "no such layout: ~A" qualified-name)))))
+
+(define-alien-routine ("wasm_instantiate_module" %wasm-instantiate-module) int
+  (bytes system-area-pointer) (length unsigned-int) (table-base unsigned-int))
+
 (defun wasm-install-code (code octets)
-  (declare (ignore octets))
-  (error "loading Wasm code at run time is not implemented yet: ~S" code))
+  "Build a module from OCTETS, the compiler's blob for the functions of
+the code object CODE, instantiate it, and store each entry's table index
+in its simple-fun's self slot."
+  (multiple-value-bind (functions entries) (sb-wasm-asm::parse-wasm-code octets)
+    (let* ((module (sb-wasm-asm::make-lisp-module))
+           (routine-imports '()))
+      ;; the assembly routines the code calls directly: imported from the
+      ;; shared table by index (import module "table", name the index)
+      (dolist (f functions)
+        (loop for (nil kind operand) in (sb-wasm-asm::wasm-function-patches f)
+              when (and (eq kind :assembly-routine)
+                        (not (assoc operand routine-imports :test #'string=)))
+                do (push (cons operand
+                               (sb-wasm-asm::wasm-import-function
+                                module "table"
+                                (princ-to-string (wasm-routine-table-index operand))
+                                sb-wasm-asm::+lisp-function-params+
+                                sb-wasm-asm::+lisp-function-results+))
+                         routine-imports)))
+      (let* ((base (sb-wasm-asm::wasm-import-count module :func))
+             (n (length functions))
+             (table-base *wasm-table-next*)
+             (indices '()))
+        (setf *wasm-table-next* (+ table-base n))
+        (loop for f in functions
+              for i from base
+              do (setf (sb-wasm-asm::wasm-function-index f) i))
+        (flet ((table-slot (module-index) (+ table-base (- module-index base))))
+          (dolist (f functions)
+            (let ((body (sb-wasm-asm::wasm-function-body f)))
+              (loop for (offset kind operand) in (sb-wasm-asm::wasm-function-patches f)
+                    do (sb-wasm-asm::patch-fixed-leb128
+                        body offset
+                        (ecase kind
+                          (:function (+ base operand))
+                          (:assembly-routine (cdr (assoc operand routine-imports :test #'string=)))
+                          (:type (sb-wasm-asm::wasm-type-index module (first operand) (second operand)))
+                          (:assembly-routine-entry (wasm-routine-table-index operand))
+                          (:foreign
+                           (alien-linkage-index-to-addr
+                            (sb-impl::ensure-alien-linkage-index operand nil) nil))
+                          (:foreign-dataref
+                           (alien-linkage-index-to-addr
+                            (sb-impl::ensure-alien-linkage-index operand t) t))
+                          (:coverage (error "code coverage is not supported on this target yet"))
+                          (:layout-id (wasm-layout-id-of operand)))
+                        (sb-wasm-asm::patch-kind-signed-p kind)))
+              (push (sb-wasm-asm::wasm-add-function
+                     module sb-wasm-asm::+lisp-function-params+ sb-wasm-asm::+lisp-function-results+
+                     (sb-wasm-asm::wasm-function-locals f) body
+                     :name (sb-wasm-asm::wasm-function-name f))
+                    indices)))
+          (sb-wasm-asm::wasm-add-elements
+           module 0 (sb-wasm-asm::i32-const-expression table-base) (nreverse indices))
+          ;; the table range, for the host: two little-endian u32
+          (let ((range (make-array 8 :element-type '(unsigned-byte 8))))
+            (loop for (value start) in (list (list table-base 0) (list n 4))
+                  do (dotimes (i 4)
+                       (setf (aref range (+ start i)) (ldb (byte 8 (* 8 i)) value))))
+            (sb-wasm-asm::wasm-add-custom-section module "sbcl.core.table" range))
+          (let ((bytes (coerce (sb-wasm-asm::wasm-module-octets module)
+                               '(simple-array (unsigned-byte 8) (*)))))
+            (with-pinned-objects (bytes)
+              (when (zerop (%wasm-instantiate-module (vector-sap bytes) (length bytes) table-base))
+                (error "the host could not instantiate the module of ~S" code))))
+          ;; the simple-funs' self slots: table indices. ENTRIES is in
+          ;; IR2-COMPONENT-ENTRIES order, numbered from the last simple-fun
+          ;; of the code object down (FOP-FUN-ENTRY, genesis).
+          (with-pinned-objects (code)
+            (loop for fun-index downfrom (1- (length entries))
+                  for local in entries
+                  do (let ((fun (sb-kernel:%code-entry-point code fun-index)))
+                       (setf (sap-ref-word (int-sap (get-lisp-obj-address fun))
+                                           (- (ash simple-fun-self-slot word-shift) fun-pointer-lowtag))
+                             (table-slot (sb-wasm-asm::wasm-function-index (nth local functions)))))))))
+      code)))
+
+;;; A funcallable instance is entered through its function slot, by the
+;;; compiled call sequence (EMIT-FUNCTION-OBJECT-ENTRY) and by the
+;;; runtime's call_into_lisp alike; there is no trampoline to write.
+(defun write-funinstance-prologue (object)
+  (declare (ignore object))
+  nil)
+
+;;; Without dynamic loading (#-os-provides-dlopen) there is no dlsym; the
+;;; runtime's linkage lookup (os_dlsym_default, over the table generated
+;;; from the core's required symbols) answers instead: a function's
+;;; table index or a data symbol's address, or 0 when unknown.
+(defun sb-sys:find-dynamic-foreign-symbol-address (symbol)
+  (let ((addr (alien-funcall (extern-alien "os_dlsym_default"
+                                           (function unsigned-int c-string))
+                             symbol)))
+    (if (zerop addr) nil addr)))

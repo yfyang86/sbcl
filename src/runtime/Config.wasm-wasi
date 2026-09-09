@@ -28,7 +28,6 @@ CPPFLAGS += --target=wasm32-wasip1 \
 LINKFLAGS += --target=wasm32-wasip1 \
              -Wl,--export-table -Wl,--growable-table -Wl,--export-memory \
              -Wl,--max-memory=4294967296 -Wl,-z,stack-size=8388608 \
-             -Wl,--allow-undefined \
-             -Wl,--export=alloc -Wl,--export=alloc_list
+             -Wl,--allow-undefined
 
 GC_SRC = fullcgc.c gencgc.c traceroot.c

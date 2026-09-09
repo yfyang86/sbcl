@@ -34,14 +34,14 @@ void allocator_record_backtrace(void* frame_ptr, struct thread* thread) {}
 /* The sigset functions wasi-libc does not provide (declared in wasi-os.h;
  * sigprocmask is also a foreign symbol of the core). Nothing is ever
  * blocked because nothing is ever delivered. */
-int sigprocmask(int how, const sigset_t *set, sigset_t *old)
+void sigprocmask(int how, const sigset_t *set, sigset_t *old)
 {
     if (old) *old = 0;
-    return 0;
 }
 int sb_sigprocmask(int how, const sigset_t *set, sigset_t *old)
 {
-    return sigprocmask(how, set, old);
+    sigprocmask(how, set, old);
+    return 0;
 }
 int sigaddset(sigset_t *set, int sig) { return 0; }
 int sigemptyset(sigset_t *set) { return 0; }

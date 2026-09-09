@@ -45,7 +45,7 @@ typedef int os_vm_prot_t;
 #define SIG_SETMASK 2
 typedef struct { int si_signo; int si_code; void *si_addr; } siginfo_t;
 /* defined in wasm-interrupt.c: no signal is ever blocked or delivered */
-int sigprocmask(int how, const sigset_t *set, sigset_t *old);
+void sigprocmask(int how, const sigset_t *set, sigset_t *old); /* void: matches the Lisp declaration (target-signal-common.lisp) */
 int sigaddset(sigset_t *set, int sig);
 int sigemptyset(sigset_t *set);
 int sigismember(const sigset_t *set, int sig);

@@ -14,33 +14,33 @@
 (defconstant fd-setsize 1024) ; #x400
 ;;; poll()
 (defconstant pollin 1) ; #x1
-(defconstant pollout 4) ; #x4
+(defconstant pollout 2) ; #x2
 (defconstant pollpri 2) ; #x2
-(defconstant pollhup 16) ; #x10
-(defconstant pollnval 32) ; #x20
-(defconstant pollerr 8) ; #x8
-(define-alien-type nfds-t (unsigned 64))
+(defconstant pollhup 8192) ; #x2000
+(defconstant pollnval 16384) ; #x4000
+(defconstant pollerr 4096) ; #x1000
+(define-alien-type nfds-t (unsigned 32))
 ;;; types, types, types
 (define-alien-type clock-t (signed 64))
 (define-alien-type dev-t (unsigned 64))
 (define-alien-type gid-t (unsigned 32))
 (define-alien-type ino-t (unsigned 64))
 (define-alien-type mode-t (unsigned 32))
-(define-alien-type nlink-t (unsigned 32))
+(define-alien-type nlink-t (unsigned 64))
 (define-alien-type off-t (signed 64))
-(define-alien-type size-t (unsigned 64))
-(define-alien-type ssize-t (signed 64))
+(define-alien-type size-t (unsigned 32))
+(define-alien-type ssize-t (signed 32))
 (define-alien-type time-t (signed 64))
-(define-alien-type suseconds-t (signed 64))
+(define-alien-type suseconds-t (signed 32))
 (define-alien-type uid-t (unsigned 32))
 ;; Types in src/runtime/wrap.h. See that file for explantion.
 ;; Don't use these types for anything other than the stat wrapper.
 (define-alien-type wst-ino-t (unsigned 64))
-(define-alien-type wst-dev-t (unsigned 32))
-(define-alien-type wst-off-t (unsigned 32))
-(define-alien-type wst-blksize-t (signed 32))
-(define-alien-type wst-blkcnt-t (signed 64))
-(define-alien-type wst-nlink-t (unsigned 32))
+(define-alien-type wst-dev-t (unsigned 64))
+(define-alien-type wst-off-t (signed 64))
+(define-alien-type wst-blksize-t (unsigned 32))
+(define-alien-type wst-blkcnt-t (unsigned 32))
+(define-alien-type wst-nlink-t (unsigned 64))
 (define-alien-type wst-uid-t (unsigned 32))
 (define-alien-type wst-gid-t (unsigned 32))
 
@@ -51,15 +51,15 @@
 (defconstant f_ok 0) ; #x0
 
 ;;; fcntlbits.h
-(defconstant o_rdonly 0) ; #x0
-(defconstant o_wronly 1) ; #x1
-(defconstant o_rdwr 2) ; #x2
-(defconstant o_accmode 3) ; #x3
-(defconstant o_creat 64) ; #x40
-(defconstant o_excl 128) ; #x80
-(defconstant o_noctty 256) ; #x100
-(defconstant o_trunc 512) ; #x200
-(defconstant o_append 1024) ; #x400
+(defconstant o_rdonly 67108864) ; #x4000000
+(defconstant o_wronly 268435456) ; #x10000000
+(defconstant o_rdwr 335544320) ; #x14000000
+(defconstant o_accmode 503316480) ; #x1e000000
+(defconstant o_creat 4096) ; #x1000
+(defconstant o_excl 16384) ; #x4000
+(defconstant o_noctty 0) ; #x0
+(defconstant o_trunc 32768) ; #x8000
+(defconstant o_append 1) ; #x1
 ;;;
 (defconstant s-ifmt 61440) ; #xf000
 (defconstant s-ififo 4096) ; #x1000
@@ -72,27 +72,27 @@
 (defconstant s-ifsock 49152) ; #xc000
 
 ;;; error numbers
-(defconstant ebadf 9) ; #x9
-(defconstant enoent 2) ; #x2
-(defconstant eintr 4) ; #x4
-(defconstant eagain 11) ; #xb
-(defconstant eio 5) ; #x5
-(defconstant eexist 17) ; #x11
-(defconstant eloop 40) ; #x28
-(defconstant epipe 32) ; #x20
-(defconstant ewouldblock 11) ; #xb
+(defconstant ebadf 8) ; #x8
+(defconstant enoent 44) ; #x2c
+(defconstant eintr 27) ; #x1b
+(defconstant eagain 6) ; #x6
+(defconstant eio 29) ; #x1d
+(defconstant eexist 20) ; #x14
+(defconstant eloop 32) ; #x20
+(defconstant epipe 64) ; #x40
+(defconstant ewouldblock 6) ; #x6
 
 (defconstant sc-nprocessors-onln 84) ; #x54
 ;;; for waitpid() in run-program.lisp
-(defconstant wcontinued 8) ; #x8
+(defconstant wcontinued 0) ; #x0
 (defconstant wnohang 1) ; #x1
 (defconstant wuntraced 2) ; #x2
 
 ;;; various ioctl(2) flags
-(defconstant tiocgpgrp 21519) ; #x540f
+(defconstant tiocgpgrp 0) ; #x0
 
 ;;; signals
-(defconstant sizeof-sigset_t 128) ; #x80
+(defconstant sizeof-sigset_t 1) ; #x1
 (defconstant sig_block 0) ; #x0
 (defconstant sig_unblock 1) ; #x1
 (defconstant sig_setmask 2) ; #x2
@@ -128,25 +128,21 @@
 (defconstant itimer-real 0) ; #x0
 (defconstant itimer-virtual 1) ; #x1
 (defconstant itimer-prof 2) ; #x2
-(defconstant fpe-intovf 2) ; #x2
-(defconstant fpe-intdiv 1) ; #x1
-(defconstant fpe-fltdiv 3) ; #x3
-(defconstant fpe-fltovf 4) ; #x4
-(defconstant fpe-fltund 5) ; #x5
-(defconstant fpe-fltres 6) ; #x6
-(defconstant fpe-fltinv 7) ; #x7
-(defconstant fpe-fltsub 8) ; #x8
+(defconstant fpe-intovf 4294967295) ; #xffffffff
+(defconstant fpe-intdiv 4294967295) ; #xffffffff
+(defconstant fpe-fltdiv 4294967295) ; #xffffffff
+(defconstant fpe-fltovf 4294967295) ; #xffffffff
+(defconstant fpe-fltund 4294967295) ; #xffffffff
+(defconstant fpe-fltres 4294967295) ; #xffffffff
+(defconstant fpe-fltinv 4294967295) ; #xffffffff
+(defconstant fpe-fltsub 4294967295) ; #xffffffff
 
 (defconstant clock-realtime 0) ; #x0
 (defconstant clock-monotonic 1) ; #x1
 (defconstant clock-process-cputime-id 2) ; #x2
-(defconstant clock-realtime-alarm 8) ; #x8
 (defconstant clock-realtime-coarse 5) ; #x5
-(defconstant clock-tai 11) ; #xb
 (defconstant clock-monotonic-coarse 6) ; #x6
 (defconstant clock-monotonic-raw 4) ; #x4
-(defconstant clock-boottime 7) ; #x7
-(defconstant clock-boottime-alarn 9) ; #x9
 (defconstant clock-thread-cputime-id 3) ; #x3
 ;;; structures
 (define-alien-type nil
@@ -156,16 +152,16 @@
 (define-alien-type nil
   (struct timespec
           (tv-sec (signed 64))
-          (tv-nsec (signed 64))))
-
+          (tv-nsec (signed 32))))
 (defconstant sizeof-timespec 16) ; #x10
 (defconstant sizeof-timeval 16) ; #x10
 
+(defconstant sizeof-unw-cursor 0) ; #x0
 (in-package "SB-KERNEL")
 
 ;;; GENCGC related
-(define-alien-type page-index-t (signed 64))
+(define-alien-type page-index-t (signed 32))
 (define-alien-type generation-index-t (signed 8))
 
 ;;; Our runtime types
-(define-alien-type os-vm-size-t (unsigned 64))
+(define-alien-type os-vm-size-t (unsigned 32))

@@ -81,6 +81,20 @@ fn dump_registers(store: &mut Store<State>) {
         eprint!("{}{} {:#x}", if i % 6 == 0 { "\n   " } else { " " }, name, v);
     }
     eprintln!();
+    // the frames at OCFP and CFP (the first 12 words of each)
+    let word = |off: usize| data.get(off..off + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    for (label, reg) in [("OCFP", 3usize), ("CFP", 2usize)] {
+        if let Some(base) = word(area as usize + 4 * reg) {
+            eprint!("   frame at {label} {base:#x}:");
+            for i in 0..12 {
+                match word(base as usize + 4 * i) {
+                    Some(v) => eprint!(" {v:#x}"),
+                    None => break,
+                }
+            }
+            eprintln!();
+        }
+    }
 }
 
 /// Byte offset of the interrupt-pending word in the register area
@@ -200,6 +214,19 @@ fn instantiate(mut caller: Caller<'_, State>, ptr: u32, len: u32, register_area:
         }
     };
     let mut linker: Linker<State> = Linker::new(&engine);
+    // functions the module imports from the shared table by index
+    // (assembly routines of the core module: import module "table",
+    // name the decimal table index)
+    for import in module.imports() {
+        if import.module() == "table" {
+            let index: u64 = import.name().parse().map_err(|_| Error::msg(format!("bad table import name {}", import.name())))?;
+            let func = match table.get(&mut caller, index) {
+                Some(Ref::Func(Some(f))) => f,
+                _ => return Err(Error::msg(format!("table import {index}: no function there"))),
+            };
+            linker.define(&caller, "table", import.name(), func)?;
+        }
+    }
     linker.define(&caller, "env", "memory", memory)?;
     linker.define(&caller, "env", "__indirect_function_table", table)?;
     linker.define(&caller, "env", "thread", g_thread)?;

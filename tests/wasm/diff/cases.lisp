@@ -225,6 +225,14 @@
                               (the fixnum (+ (if a a 10) (if b b 20) (if c c 40))))))
   (5) (-5) (0))
  ("mv-entry-values" (a b) ((declare (fixnum a b)) (values a b)) (1 2) (-3 4))
+ ;; Sprint 7: a three-value return with several live values around it
+ ;; (the RETURN VOP once let OLD-FP be packed in the NARGS register it
+ ;; writes; found in the cold core, see Sprints/Sprint7/develop.md)
+ ("mv-entry-values-3" (a b c) ((declare (type (signed-byte 20) a b c))
+                               (let ((x (+ a b)) (y (- a c)) (z (* b 2)))
+                                 (declare (fixnum x y z))
+                                 (values (the fixnum (+ x z)) (the fixnum (- y x)) (the fixnum (+ x y z)))))
+  (1 2 3) (-10 20 -30))
  ("mv-entry-no-values" () ((values)) ())
  ("mv-tail-local-unknown" (n) ((declare (fixnum n))
                                (labels ((f (x) (declare (fixnum x))

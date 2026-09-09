@@ -626,10 +626,21 @@ int sb_utimes(char *path, struct timeval times[2])
     return utimes(path, times);
 }
 
+#ifdef LISP_FEATURE_WASM
+/* WASI clock ids are pointers; Lisp passes the numbers grovel-headers.c
+ * defined for this target (0 realtime, 1 monotonic, 2 process cpu time) */
+int sb_clock_gettime(int id, struct timespec* tp)
+{
+    /* no process or thread cpu-time clocks on WASI: they read as monotonic */
+    clockid_t clock = id == 0 ? CLOCK_REALTIME : CLOCK_MONOTONIC;
+    return clock_gettime(clock, tp);
+}
+#else
 int sb_clock_gettime(clockid_t id, struct timespec* tp)
 {
     return clock_gettime(id, tp);
 }
+#endif
 #if !defined LISP_FEATURE_SB_THREAD && !defined LISP_FEATURE_WASM /* wasm: wasm-interrupt.c */
 #include <signal.h>
 int sb_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)

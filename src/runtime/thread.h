@@ -155,11 +155,21 @@ extern int dynamic_values_bytes;
 #define set_binding_stack_pointer(thread,value) \
     (current_binding_stack_pointer = (lispobj *)(value))
 #  endif
+#  ifdef LISP_FEATURE_WASM
+/* The Lisp registers are the words of the register area (wasm-arch.c):
+ * CSP and CFP are read where they are. */
+extern uint32_t lisp_register_area[];
+#define access_control_stack_pointer(thread)    \
+    (((lispobj**)lisp_register_area)[1]) /* reg_CSP */
+#define access_control_frame_pointer(thread) \
+    (((lispobj**)lisp_register_area)[2]) /* reg_CFP */
+#  else
 #define access_control_stack_pointer(thread)    \
     (current_control_stack_pointer)
 #  if !defined(LISP_FEATURE_X86) && !defined(LISP_FEATURE_X86_64)
 #define access_control_frame_pointer(thread) \
     (current_control_frame_pointer)
+#  endif
 #  endif
 #endif
 

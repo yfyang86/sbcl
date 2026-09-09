@@ -14,11 +14,29 @@ cat <<HEADER
 struct wasm_linkage_entry { const char *name; void *address; };
 #pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
 HEADER
+# A call through the table must have exactly the C function's Wasm type;
+# where the Lisp declaration (fixed by SYSCALL) differs from the C
+# prototype, the entry names a wrapper with the declared type
+# (src/runtime/wasm-arch.c). Lisp name -> C symbol:
+alias() {
+    case "$1" in
+        exit) echo wasm_exit_int ;;
+        _exit) echo wasm__exit_int ;;
+        *) echo "$1" ;;
+    esac
+}
 # declarations
-awk '$2 == "function" { printf "extern void %s(void);\n", $3 }
-     $2 == "data"     { printf "extern char %s[];\n", $3 }' "$symbols"
+while read -r index kind name; do
+    c=$(alias "$name")
+    case "$kind" in
+        function) echo "extern void $c(void);" ;;
+        data) echo "extern char $c[];" ;;
+    esac
+done < "$symbols"
 echo "const struct wasm_linkage_entry wasm_linkage_table[] = {"
-awk '{ printf "    { \"%s\", (void*)%s },\n", $3, $3 }' "$symbols"
+while read -r index kind name; do
+    echo "    { \"$name\", (void*)$(alias "$name") },"
+done < "$symbols"
 cat <<FOOTER
     { 0, 0 }
 };
