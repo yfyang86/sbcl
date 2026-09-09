@@ -131,3 +131,21 @@ the tag. Counts: 108 files; the ANSI suite is in section 2.
 | crashed: `SLEEP.1/7/8/9` | foreign | `sb_nanosleep` declared with a result it does not have: fixed |
 | crashed: `FILE-AUTHOR.1-7`, `MACHINE-INSTANCE.1` | foreign | undefined C functions as mistyped imports: fixed (stubs; `file-author` signals "no match for uid", which the tests record as a failure to look at: a `nil` author would satisfy them) |
 | crashed: `INVOKE-DEBUGGER.1`, `INVOKE-DEBUGGER.ERROR.3-5` | unsupported | the process runs with `--disable-debugger`, so invoking the debugger ends it, by design; the driver could run these with the debugger enabled and `*debugger-hook*` bound (next sprint), or they join the expected list |
+
+## 3. After the fixes (the second baseline, `doc/wasm-port/baselines/sprint-9.txt`)
+
+| | first baseline | second baseline |
+|---|---|---|
+| regression files passed / not passed | 295 / 108 | 343 / 60 |
+| files that died of a trap | 37 | 1 (`threads.impure.lisp`, the deadline) |
+| test successes reported | 5,520 | 6,958 |
+| ANSI pass / fail / crashed | 21,539 / 192 / 21 | 21,543 / 205 / 4 |
+| ANSI processes (one per crash) | 48 | 13 |
+| ANSI failures outside the expected list | (no list yet) | 62, of which 55 are the state-dependent group |
+
+The 60 files that still fail are the classes the table marks for the
+next sprint (debugger, `dynamic-extent`, the collector, executable
+cores, timers, the individual items), the files whose remaining
+failures are tagged tests that could not be tagged without running
+them (now tagged), and the reported failures of `arith-2`, `float-2`
+and the "to look at" group.

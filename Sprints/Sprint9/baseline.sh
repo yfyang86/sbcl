@@ -21,7 +21,7 @@ failed=$(grep -cv "^0 " "$logdir/results.txt")
 echo "files: $total  passed: $((total - failed))  failed or incomplete: $failed"
 echo
 echo "== files that did not pass (status, seconds, file; 104 is the runner's success code inside run-tests.sh)"
-grep -v "^0 " "$logdir/results.txt" | sort -k3 | while read -r status secs file; do
+grep -v "^0 " "$logdir/results.txt" | sort -u -k3,3 | while read -r status secs file; do
     f="$logdir/$file.log"
     if grep -q "^Status:" "$f" 2>/dev/null; then how="reported"
     elif grep -q "wasm trap\|error while executing" "$f" 2>/dev/null; then how="trap: $(sed -n 's/^ *wasm trap: //p' "$f" | head -1)"

@@ -20,6 +20,11 @@ carry their tags; the second baseline report
 next sprint, whose exit is zero unexpected failures in both suites and
 the CI job.
 
-Status: in progress. Records: `triage.md`, `develop.md`, `test.md`
+Status: done. The second baseline report is
+`doc/wasm-port/baselines/sprint-9.txt` (the regression suite: 403 files,
+343 passed, 60 did not, against 295 and 108 before; the ANSI suite:
+21,543 pass, 205 fail, 4 crashed, 62 outside the expected list, 55 of
+them one state-dependent cause that heads the next sprint's list).
+Records: `triage.md`, `develop.md`, `test.md`
 (UAT), `verify.md`; script: `uat.sh`. The sprint branch `sprint10` is
 merged into `wasm-dev` with `--no-ff` once `uat.sh` is green.

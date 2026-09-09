@@ -1,0 +1,3 @@
+;;;; SIGBUS handler not installed
+
+(:BITS 0 0 1) 

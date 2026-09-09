@@ -150,3 +150,42 @@ runtime's cell before dispatching to the entry.
 4. **The C stack stays put**: 20,000 errors caught by `handler-case`
    leave `c_stack_save` where it was (item 7 of the C stack fix,
    measured in the cold core).
+
+## 9. The ANSI suite's state-dependent failures, after the C stack fix
+
+The rerun still fails the same 55 tests, now with two clearer symptoms
+from the C generator (`lisp_perfhash_with_options`): its text comes
+back as "()" (an expression with no operations, which the reader turns
+into `(uint32-modularly val)` and the compiled hash then returns NIL:
+"The value NIL is not of type (unsigned-byte 2)"), or with a byte
+above 127 in it (the `c-string` decoding error). What was established
+(`ansi-diag.lisp`, `ansi-bisect.lisp` in this directory, run in the
+suite's saved core):
+
+- The generator is deterministic and stable in a fresh process: 8,000
+  calls on the same keys, 300 random key sets, calls interleaved with
+  forced collections and fresh key vectors all agree.
+- In a run of the suite, the answer for the keys of `format.e.3`
+  changes from `((& (>> val 24) 7))` to "()" right after test 1,251
+  (`lambda.error.2`, a call of the `lambda` macro function with one
+  argument), and stays changed; that test alone does not do it, so
+  the state accumulates over the 1,250 before it.
+- At that point the number stack pointer and the C stack pointer are
+  where they should be (the C stack has lost about 35 bytes per test
+  from some other path, 100 KB in 3,000 tests, not enough to matter),
+  the heap verifier (`SBCL_WASM_VERIFY_GC=1`) reports nothing, integer
+  and pointer arguments reach C correctly (`strlen`), `malloc` answers,
+  and the generator still answers correctly for other key sets (eleven
+  keys, five other keys). Only some key sets get the empty answer,
+  which is not a legitimate output (trivially hashable keys print
+  `((& val 7))`).
+- So something in the C side's memory that the generator's search
+  depends on for these keys has changed: a static of `perfecthash.c`
+  or of libc, or heap contents it reads without initializing. The
+  candidates are a write below the number stack (a 1 MB static array
+  in the runtime's data segment, whose underflow lands in whatever
+  precedes it) and a C-side buffer overrun; the next step is to snapshot
+  the data segment before and after test 1,251 and compare.
+
+The tests stay in the report as unexpected failures (they are not
+expected by design); the item heads the next sprint's list.

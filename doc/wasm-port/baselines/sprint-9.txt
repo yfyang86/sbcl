@@ -1,0 +1,487 @@
+SBCL WebAssembly port: regression suite baseline after the first triage (plan Sprint 9; Sprints/Sprint10)
+date: 2026-09-09T20:51Z  commit: bfba752  runtime: src/runtime/sbcl.wasm  core: output/sbcl.core
+runner: tests/wasm-parallel-exec.sh (one sbcl-wasm per file through run-tests.sh; impure and shell tests in host processes)
+files: 403  passed: 343  failed or incomplete: 60
+
+== files that did not pass (status, seconds, file; 104 is the runner's success code inside run-tests.sh)
+1 161s arith-2.pure.lisp  [reported]
+1 17s backtrace.impure.lisp  [reported]
+1 21s bit-vector.impure.lisp  [reported]
+1 10s ccase.pure.lisp  [reported]
+1 17s chill.impure.lisp  [reported]
+1 68s clos.impure.lisp  [reported]
+1 22s compiler-2.impure.lisp  [reported]
+1 11s compiler-ir.pure.lisp  [reported]
+1 139s compiler.impure.lisp  [reported]
+1 14s compiler.pure-cload.lisp  [reported]
+1 312s compiler.pure.lisp  [reported]
+1 12s condition-2.pure.lisp  [reported]
+1 11s condition.pure.lisp  [reported]
+1 60s constraint.pure.lisp  [reported]
+1 48s ctor.impure.lisp  [reported]
+1 33s deadline.impure.lisp  [reported]
+1 22s debug.impure.lisp  [reported]
+1 11s debug.pure.lisp  [reported]
+1 89s defstruct.impure.lisp  [reported]
+1 15s disassem.impure.lisp  [reported]
+1 8s disassem.pure-cload.lisp  [reported]
+1 128s dynamic-extent.pure.lisp  [reported]
+1 39s external-format.pure.lisp  [no report]
+1 12s fifo-slow.impure.lisp  [reported]
+1 31s filesys.pure.lisp  [reported]
+1 16s filesys.test.sh  [reported]
+1 15s finalize.impure.lisp  [reported]
+1 32s float-2.pure.lisp  [reported]
+1 11s foreign-stack-alignment.impure.lisp  [reported]
+1 14s gc-slow.impure.lisp  [reported]
+1 14s gc.impure.lisp  [reported]
+1 11s hash-2.pure.lisp  [reported]
+1 13s hash-table.impure.lisp  [reported]
+1 17s hide-packages.test.sh  [reported]
+1 12s hopscotch.impure-cload.lisp  [reported]
+1 15s interface.impure.lisp  [reported]
+1 8s interface.pure.lisp  [reported]
+1 22s lzcore.test.sh  [reported]
+1 11s macro-policy-decls.impure-cload.lisp  [reported]
+1 18s packages.impure.lisp  [reported]
+1 12s pathnames.pure.lisp  [reported]
+1 28s print.impure.lisp  [reported]
+1 14s reader.impure.lisp  [reported]
+1 10s reader.pure.lisp  [reported]
+1 14s run-program.test.sh  [reported]
+1 18s run-sbcl.test.sh  [reported]
+1 22s save2.test.sh  [reported]
+1 14s save3.test.sh  [reported]
+1 14s save8.test.sh  [reported]
+1 32s sb-introspect.impure.lisp  [reported]
+1 35s script.test.sh  [reported]
+1 8s selfbuild-output.pure.lisp  [reported]
+1 22s sleepytests.pure.lisp  [reported]
+1 9s step.pure.lisp  [reported]
+1 13s stream.impure.lisp  [reported]
+1 13s stream.pure.lisp  [reported]
+1 18s stream.test.sh  [reported]
+1 908s threads.impure.lisp  [trap: ]
+1 13s unwind-to-frame-and-call.impure.lisp  [reported]
+1 12s utf-8.impure.lisp  [reported]
+
+== unexpected failures (file / test)
+           /tmp/sbcl-scratch14846wozmfbldfe.fasl / SPLAT-NIL
+           /tmp/sbcl-scratch17664wozmfbldfe.fasl / DISASSEMBLE-ANNOTATE-FUNS
+           arith-2.pure.lisp / LOGAND-CUT-CONSTANTS.2
+           arith-2.pure.lisp / SIGNED-BYTE-8-P-UNSIGNED
+           arith-2.pure.lisp / TRUNCATE-UNKNOWN-INTEGER
+           arith-2.pure.lisp / WORD-FLOOR-CEILING
+           backtrace.impure.lisp / (BACKTRACE BUG-308926)
+           backtrace.impure.lisp / (BACKTRACE BUG-310173)
+           backtrace.impure.lisp / (BACKTRACE BUG-354)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 *)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 +)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 -)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 /)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 <)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 =)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 >)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 GCD)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 LCM)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGAND)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGIOR)
+           backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGXOR)
+           backtrace.impure.lisp / (BACKTRACE CLOS-EMF-NAMED)
+           backtrace.impure.lisp / (BACKTRACE CLOS-SLOT-TYPECHECKFUN-NAMED)
+           backtrace.impure.lisp / (BACKTRACE COMPILE NIL)
+           backtrace.impure.lisp / (BACKTRACE DEFAULT-ONLY)
+           backtrace.impure.lisp / (BACKTRACE GF-DISPATCH)
+           backtrace.impure.lisp / (BACKTRACE HAIRY-ARGS-PROCESSOR)
+           backtrace.impure.lisp / (BACKTRACE LOCAL-TAIL-CALL)
+           backtrace.impure.lisp / (BACKTRACE MORE-PROCESSOR)
+           backtrace.impure.lisp / (BACKTRACE OPTIONAL-PROCESSOR)
+           backtrace.impure.lisp / (BACKTRACE THROW NO-SUCH-TAG)
+           backtrace.impure.lisp / (BACKTRACE TL-XEP)
+           backtrace.impure.lisp / (BACKTRACE UNDEFINED-FUNCTION BUG-346)
+           backtrace.impure.lisp / (BACKTRACE UNDEFINED-FUNCTION BUG-353)
+           backtrace.impure.lisp / (BACKTRACE UNUSED-KEY-WITH-SUPPLIED-P)
+           backtrace.impure.lisp / (BACKTRACE UNUSED-OPTIONAL-WITH-SUPPLIED-P BUG-1498644)
+           backtrace.impure.lisp / (BACKTRACE VARARGS-ENTRY)
+           backtrace.impure.lisp / (BACKTRACE XEP)
+           backtrace.impure.lisp / (BACKTRACE XEP-TOO-MANY-ARGUMENTS)
+           backtrace.impure.lisp / LONG-STRING-ABBREVIATION
+           backtrace.impure.lisp / UNINITIALIZED-OPTIONALS
+           ccase.pure.lisp / CCASE-SUBFORMS-ONCE-ONLY
+           chill.impure.lisp / (CHILL READ-XC-FILES)
+           clos.impure.lisp / SETF-SLOT-VALUE-RESTART
+           compiler-2.impure.lisp / EVAL-TOP-LEVEL-CODE-SEPARATE-COMPONENT
+           compiler-ir.pure.lisp / EVENP+ARITHMETIC
+           compiler-ir.pure.lisp / SIGN-EXTEND
+           compiler.impure.lisp / COMPILED-DEBUG-FUNS-LEAK
+           compiler.pure.lisp / POSITION-DERIVE-TYPE-OPTIMIZER
+           compiler.pure.lisp / QUANTIFIERS-NO-CONSING
+           compiler.pure.lisp / REDUCING-CONSTANTS
+           condition-2.pure.lisp / RESTART-TYPE-ERROR
+           condition.pure.lisp / TYPE-ERROR-ON-DX-OBJECT
+           constraint.pure.lisp / IGNORE-DELAYS
+           ctor.impure.lisp / (MAKE-INSTANCE CTOR-DEFAULT-INITARGS-1)
+           ctor.impure.lisp / (MAKE-INSTANCE CTOR-DEFAULT-INITARGS-2)
+           deadline.impure.lisp / (DEADLINE CANCEL-DEADLINE)
+           deadline.impure.lisp / (DEADLINE DEFER-DEADLINE 1)
+           deadline.impure.lisp / (DEADLINE DEFER-DEADLINE 2)
+           deadline.impure.lisp / (DEADLINE DEFER-DEADLINE 3)
+           deadline.impure.lisp / (DEADLINE RUN-PROGRAM TRIVIAL)
+           debug.pure.lisp / C-UNPACK-COMPILED-DEBUG-INFO-FUN-MAP
+           defstruct.impure.lisp / BUG-3B
+           defstruct.impure.lisp / DEFSTRUCT-BOA-NICE-ERROR
+           disassem.impure.lisp / DISASSEMBLE-SAP
+           dynamic-extent.pure.lisp / (DX-BUG-MISC BDOWNING-2005-IV-16)
+           dynamic-extent.pure.lisp / (DX-FLET-TEST 0)
+           dynamic-extent.pure.lisp / (DX-FLET-TEST 1)
+           dynamic-extent.pure.lisp / (DX-FLET-TEST 2)
+           dynamic-extent.pure.lisp / (NO-CONSING AUTO-DX-CLOSURES)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-ARRAYS)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-CLOSURES)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-FIXED-OBJECTS)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-LISTS)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-VALUE-CELL)
+           dynamic-extent.pure.lisp / (NO-CONSING DX-VECTORS)
+           dynamic-extent.pure.lisp / (NO-CONSING MORE-AUTO-DX-CLOSURES)
+           dynamic-extent.pure.lisp / AUTO-DX-DISJOINT-SEQUENTIAL.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-FLET-SEVERAL-REF.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO
+           dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO.TRANSFORM
+           dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO.TRANSFORM-2
+           dynamic-extent.pure.lisp / AUTO-DX-MONSTER
+           dynamic-extent.pure.lisp / AUTO-DX-MUTUALLY-RECURSIVE.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-RECURSIVE-REF-2.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-RECURSIVE-REF.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-TRANSITIVE-CARRIERS.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-WITH-SINGLE-REF-FLET
+           dynamic-extent.pure.lisp / AUTO-DX-XEP-AND-LOCAL-CALL.SHARED-FLET-CLEANUP.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / AUTO-DX-XEP-AND-LOCAL-CALL.STACK-ALLOCATES
+           dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE
+           dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE-OTHERWISE-INACCESSIBLE
+           dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE-OTHERWISE-INACCESSIBLE.FLET
+           dynamic-extent.pure.lisp / DX-DO-PROPAGATE-LET-VAR
+           dynamic-extent.pure.lisp / DX-FLET-SUBSTITUTION-MULTIPLE-REFS
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-CONDITIONAL-ALLOCATION.PARTIAL
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-CONDITIONAL-ALLOCATION.PARTIAL.2
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-FUNCTION-BRANCH
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2043242
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2156347
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2156347.REDUCED
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-MESS-UP
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LET
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LOCAL-CALLS
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LOCAL-CALLS.INTERLEAVE
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-NESTED
+           dynamic-extent.pure.lisp / DYNAMIC-EXTENT-START-LATER
+           dynamic-extent.pure.lisp / HANDLER-CASE-EATING-STACK
+           dynamic-extent.pure.lisp / LAMBDA-REF-SUBSTITUTION
+           dynamic-extent.pure.lisp / LIST+FILL+MAKE-ARRAY
+           dynamic-extent.pure.lisp / NESTED-MULTIPLE-USE-VARS
+           dynamic-extent.pure.lisp / NESTED-MULTIPLE-USE-VARS-VECTOR-FILL
+           dynamic-extent.pure.lisp / RECHECK-NESTED-DX-BUG
+           dynamic-extent.pure.lisp / STACK-ALLOCATED-VECTOR-CHECKS-OVERFLOW
+           dynamic-extent.pure.lisp / STACK-ANALYSIS-PRESERVE.SETQ-NESTED-LOOP
+           dynamic-extent.pure.lisp / WITH-OUTPUT-TO-STRING
+           filesys.pure.lisp / (FILE-AUTHOR STRINGP)
+           finalize.impure.lisp / FINALIZERS-RAN
+           float-2.pure.lisp / COMPLEX-FLOAT
+           float-2.pure.lisp / THE-TRUNCATE
+           gc.impure.lisp / CODE-ITERATION-FAST
+           gc.impure.lisp / PAGE-PROTECTED-P
+           gc.impure.lisp / ROSPACE-STRINGS
+           hash-2.pure.lisp / (HASH-TABLE WEAKNESS EQL NUMBERS)
+           hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY REMOVAL)
+           hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY-AND-VALUE REMOVAL)
+           hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY-OR-VALUE REMOVAL)
+           hash-2.pure.lisp / (HASH-TABLE WEAKNESS VALUE REMOVAL)
+           hash-table.impure.lisp / HASH-TABLE-ITERATOR-NO-NOTES
+           interface.pure.lisp / (DISASSEMBLE PURIFIED)
+           packages.impure.lisp / MAKE-PACKAGE-COMPILE-TWICE
+           pathnames.pure.lisp / INTERN-PATHNAME-NON-CONSY
+           print.impure.lisp / (FORMAT BUG-905817)
+           reader.impure.lisp / (SHARP=-CONS-TYPED-CONS-SLOT CIRCULAR NO-ERROR)
+           reader.impure.lisp / (SHARP=-CONS-TYPED-SLOT CIRCULAR NO-ERROR)
+           reader.impure.lisp / (SHARP=-TYPED-SLOT CIRCULAR NO-ERROR)
+           reader.pure.lisp / READ-DOES-NOT-CONS-PER-SE
+           reader.pure.lisp / READ-SYMBOL-DOES-NOT-CONS-PER-SE
+           selfbuild-output.pure.lisp / COPY-STRUCTURE-EFFICIENT-CASE
+           sleepytests.pure.lisp / (SLEEP BUG-1194673)
+           sleepytests.pure.lisp / (SLEEP NON-CONSING)
+           sleepytests.pure.lisp / (WITH-TIMEOUT FORMS)
+           step.pure.lisp / STEP-FRAME
+           step.pure.lisp / STEP-INTO
+           step.pure.lisp / STEP-NEXT
+           step.pure.lisp / STEP-NEXT/2
+           step.pure.lisp / STEP-OUT
+           step.pure.lisp / STEP-OUT/2
+           step.pure.lisp / STEP-START-FROM-BREAK
+           stream.pure.lisp / (READ-BYTE ELEMENT-TYPE EOF-VALUE)
+           stream.pure.lisp / READ-SEQUENCE-DISPLACED-OFFSET
+           stream.pure.lisp / WITH-INPUT-FROM-STRING-SIGNAL-STREAM-ERROR
+           unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME NORMAL)
+           unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME OPTIONAL-SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS TOPLEVEL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS TOPLEVEL-SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME HAIRY-LOCAL-FUNCTION)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME LOCAL-FUNCTION)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME NORMAL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME OPTIONAL-SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME SPECIAL)
+           unwind-to-frame-and-call.impure.lisp / CURRENT-CATCH-BLOCK-RESTORED
+           unwind-to-frame-and-call.impure.lisp / TEST-UNWIND-1
+           unwind-to-frame-and-call.impure.lisp / TEST-UNWIND-2
+
+== unexpected successes
+array.pure.lisp / CHECK-BOUND-SIGNED-BOUND-NOTES
+
+== leftover threads, invalid exit status, unhandled errors
+      4 Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
+      3 Unhandled SIMPLE-ERROR:
+      3 Unhandled SB-INT:EXTENSION-FAILURE:
+      1 Unhandled SIMPLE-ERROR: code coverage is not supported on this target yet
+      1 Unhandled SIMPLE-ERROR: alien callbacks are not implemented on this target yet
+      1 Unhandled SIMPLE-ERROR: Unknown platform
+      1 Unhandled SIMPLE-ERROR: Symbol value differs: SB-IMPL::*WASM-PROCESS-COUNTER*
+      1  Invalid exit status: stream.test.sh
+      1  Invalid exit status: script.test.sh
+      1  Invalid exit status: save8.test.sh
+      1  Invalid exit status: save3.test.sh
+      1  Invalid exit status: save2.test.sh
+      1  Invalid exit status: run-sbcl.test.sh
+      1  Invalid exit status: run-program.test.sh
+      1  Invalid exit status: lzcore.test.sh
+      1  Invalid exit status: interface.impure.lisp
+      1  Invalid exit status: hopscotch.impure-cload.lisp
+      1  Invalid exit status: hide-packages.test.sh
+      1  Invalid exit status: gc-slow.impure.lisp
+      1  Invalid exit status: filesys.test.sh
+      1  Invalid exit status: debug.impure.lisp
+
+== counts
+unexpected failures: 167
+expected failures: 21
+skipped (broken/irrelevant/unimplemented): 6
+successes: 6958
+
+== the ANSI suite (tests/ansi-tests.sh: tests/wasm-ansi-tests.sh, one test at a time; tests/ansi-test/results.txt)
+tests: 21752  pass: 21543  fail: 205  crashed: 4
+
+== ANSI tests that failed
+APROPOS-LIST.ERROR.2
+APROPOS.ERROR.2
+BOTH-CASE-P.2
+CHAR-DOWNCASE.2
+CHAR-UPCASE.2
+CMUCL-TYPE-PROP.1
+CMUCL-TYPE-PROP.9
+COMPILE-FILE.2
+EXP.ERROR.10
+EXP.ERROR.11
+EXP.ERROR.4
+EXP.ERROR.5
+EXP.ERROR.6
+EXP.ERROR.7
+EXP.ERROR.8
+EXP.ERROR.9
+EXPT.ERROR.10
+EXPT.ERROR.11
+EXPT.ERROR.4
+EXPT.ERROR.5
+EXPT.ERROR.6
+EXPT.ERROR.7
+EXPT.ERROR.8
+EXPT.ERROR.9
+FILE-AUTHOR.1
+FILE-AUTHOR.2
+FILE-AUTHOR.3
+FILE-AUTHOR.4
+FILE-AUTHOR.5
+FILE-AUTHOR.6
+FILE-AUTHOR.7
+FILE-LENGTH.ERROR.3
+FORMAT./.17
+FORMAT.A.29
+FORMAT.A.57
+FORMAT.A.58
+FORMAT.B.27
+FORMAT.B.28
+FORMAT.B.29
+FORMAT.D.27
+FORMAT.D.28
+FORMAT.D.29
+FORMAT.E.10
+FORMAT.E.11
+FORMAT.E.12
+FORMAT.E.13
+FORMAT.E.14
+FORMAT.E.15
+FORMAT.E.16
+FORMAT.E.17
+FORMAT.E.18
+FORMAT.E.19
+FORMAT.E.20
+FORMAT.E.21
+FORMAT.E.22
+FORMAT.E.23
+FORMAT.E.24
+FORMAT.E.25
+FORMAT.E.26
+FORMAT.E.3
+FORMAT.E.4
+FORMAT.E.5
+FORMAT.E.6
+FORMAT.E.7
+FORMAT.E.8
+FORMAT.E.9
+FORMAT.F.1
+FORMAT.F.45
+FORMAT.F.46
+FORMAT.F.46B
+FORMAT.F.5
+FORMAT.F.8
+FORMAT.O.27
+FORMAT.O.28
+FORMAT.O.29
+FORMAT.R.37
+FORMAT.R.38
+FORMAT.S.29
+FORMAT.X.27
+FORMAT.X.28
+FORMAT.X.29
+FORMATTER.A.57
+FORMATTER.A.58
+FORMATTER.B.27
+FORMATTER.B.28
+FORMATTER.B.29
+FORMATTER.D.27
+FORMATTER.D.28
+FORMATTER.D.29
+FORMATTER.F.45
+FORMATTER.F.46
+FORMATTER.F.46B
+FORMATTER.O.27
+FORMATTER.O.28
+FORMATTER.O.29
+FORMATTER.R.37
+FORMATTER.R.38
+FORMATTER.X.27
+FORMATTER.X.28
+FORMATTER.X.29
+IMAGPART.4
+INTERSECTION.FOLD.1
+LISTEN.7
+LOOP.1.39
+LOOP.1.40
+LOOP.1.41
+LOOP.1.42
+LOOP.1.43
+MACHINE-INSTANCE.1
+MACROLET.36
+MAKE-CONDITION.3
+MAKE-CONDITION.4
+MAKE-PATHNAME-ERROR-ABSOLUTE-WILD-INFERIORS-BACK
+MAKE-PATHNAME-ERROR-RELATIVE-WILD-INFERIORS-BACK
+MAP.48
+MISC.485
+MISC.548
+MISC.574
+MISC.598
+NSET-DIFFERENCE.16
+NSET-DIFFERENCE.17
+NSET-DIFFERENCE.18
+NSET-DIFFERENCE.19
+NSET-EXCLUSIVE-OR.17
+NSET-EXCLUSIVE-OR.17-A
+NSET-EXCLUSIVE-OR.18
+NSET-EXCLUSIVE-OR.18-A
+PPRINT-LOGICAL-BLOCK.ERROR.1
+PPRINT-LOGICAL-BLOCK.ERROR.1-UNSAFE
+PPRINT-LOGICAL-BLOCK.ERROR.3
+PPRINT-LOGICAL-BLOCK.ERROR.3-UNSAFE
+PPRINT-TAB.ERROR.5
+PPRINT-TAB.ERROR.5-UNSAFE
+PRINT-LEVEL.8
+PRINT-LEVEL.9
+PRINT-STRUCTURE.1
+PRINT.BACKQUOTE.RANDOM.1
+PRINT.BACKQUOTE.RANDOM.10
+PRINT.BACKQUOTE.RANDOM.11
+PRINT.BACKQUOTE.RANDOM.13
+PRINT.BACKQUOTE.RANDOM.14
+PRINT.BACKQUOTE.RANDOM.2
+PRINT.BACKQUOTE.RANDOM.3
+PRINT.BACKQUOTE.RANDOM.4
+PRINT.BACKQUOTE.RANDOM.5
+PRINT.DOUBLE-FLOAT.3
+PRINT.DOUBLE-FLOAT.4
+PRINT.LONG-FLOAT.3
+PRINT.LONG-FLOAT.4
+PRINT.SHORT-FLOAT.3
+PRINT.SHORT-FLOAT.4
+PRINT.SINGLE-FLOAT.3
+PRINT.SINGLE-FLOAT.4
+PROCLAIM.ERROR.7
+REMOVE-DUPLICATES.FOLD.1
+REMOVE-DUPLICATES.FOLD.2
+REMOVE-DUPLICATES.FOLD.3
+REMOVE-DUPLICATES.FOLD.4
+REMOVE-IF-NOT.FOLD.1
+REMOVE-IF-NOT.FOLD.2
+REMOVE-IF-NOT.FOLD.3
+REMOVE-IF-NOT.FOLD.4
+REMOVE-IF.FOLD.1
+REMOVE-IF.FOLD.2
+REMOVE-IF.FOLD.3
+REMOVE-IF.FOLD.4
+REMOVE.FOLD.1
+REMOVE.FOLD.2
+REMOVE.FOLD.3
+REMOVE.FOLD.4
+ROW-MAJOR-AREF.2
+SET-DIFFERENCE.16
+SET-DIFFERENCE.17
+SET-DIFFERENCE.18
+SET-DIFFERENCE.19
+SET-DIFFERENCE.FOLD.1
+SET-EXCLUSIVE-OR.17
+SET-EXCLUSIVE-OR.17-A
+SET-EXCLUSIVE-OR.18
+SET-EXCLUSIVE-OR.18-A
+SET-SYNTAX-FROM-CHAR.SHARP.1
+SET-SYNTAX-FROM-CHAR.SHARP.2
+SHARED-INITIALIZE.ERROR.4
+SHIFTF.7
+SUBSTITUTE-IF-NOT.FOLD.1
+SUBSTITUTE-IF-NOT.FOLD.2
+SUBSTITUTE-IF-NOT.FOLD.3
+SUBSTITUTE-IF-NOT.FOLD.4
+SUBSTITUTE-IF.FOLD.1
+SUBSTITUTE-IF.FOLD.2
+SUBSTITUTE-IF.FOLD.3
+SUBSTITUTE-IF.FOLD.4
+SUBSTITUTE.FOLD.1
+SUBSTITUTE.FOLD.2
+SUBSTITUTE.FOLD.3
+SUBSTITUTE.FOLD.4
+SUBTYPEP-COMPLEX.8
+SXHASH.17
+SXHASH.18
+SXHASH.19
+SYMBOL-FUNCTION.ERROR.5
+SYNTAX.NUMBER-TOKEN.4
+SYNTAX.SHARP-C.6
+SYNTAX.SHARP-C.7
+UNION.FOLD.1
+
+== ANSI tests that crashed the process (a trap, or the process deadline)
+INVOKE-DEBUGGER.1
+INVOKE-DEBUGGER.ERROR.3
+INVOKE-DEBUGGER.ERROR.4
+INVOKE-DEBUGGER.ERROR.5
+
+== against the expected failures of tests/ansi-tests.sh (its #+wasm entries included)
+unexpected failures: 62 CMUCL-TYPE-PROP.1 CMUCL-TYPE-PROP.9 FORMAT.E.10 FORMAT.E.11 FORMAT.E.12 FORMAT.E.13 FORMAT.E.14 FORMAT.E.15 FORMAT.E.16 FORMAT.E.17 FORMAT.E.18 FORMAT.E.19 FORMAT.E.21 FORMAT.E.22 FORMAT.E.23 FORMAT.E.24 FORMAT.E.25 FORMAT.E.26 FORMAT.E.3 FORMAT.E.4 FORMAT.E.5 FORMAT.E.7 FORMAT.E.8 FORMAT.E.9 FORMAT.F.1 MACHINE-INSTANCE.1 MISC.485 MISC.548 MISC.574 NSET-DIFFERENCE.16 NSET-DIFFERENCE.17 NSET-DIFFERENCE.18 NSET-DIFFERENCE.19 NSET-EXCLUSIVE-OR.17 NSET-EXCLUSIVE-OR.17-A NSET-EXCLUSIVE-OR.18 NSET-EXCLUSIVE-OR.18-A PPRINT-TAB.ERROR.5 PPRINT-TAB.ERROR.5-UNSAFE PRINT.DOUBLE-FLOAT.3 PRINT.DOUBLE-FLOAT.4 PRINT.LONG-FLOAT.3 PRINT.LONG-FLOAT.4 PRINT.SHORT-FLOAT.3 PRINT.SHORT-FLOAT.4 PRINT.SINGLE-FLOAT.3 PRINT.SINGLE-FLOAT.4 ROW-MAJOR-AREF.2 SET-DIFFERENCE.16 SET-DIFFERENCE.17 SET-DIFFERENCE.18 SET-DIFFERENCE.19 SET-DIFFERENCE.FOLD.1 SET-EXCLUSIVE-OR.17 SET-EXCLUSIVE-OR.17-A SET-EXCLUSIVE-OR.18 SET-EXCLUSIVE-OR.18-A SET-SYNTAX-FROM-CHAR.SHARP.1 SET-SYNTAX-FROM-CHAR.SHARP.2 SYNTAX.NUMBER-TOKEN.4 SYNTAX.SHARP-C.6 SYNTAX.SHARP-C.7
+expected to fail but passing: 0

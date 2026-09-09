@@ -39,7 +39,8 @@
     void
   (where sb-alien:unsigned-long))
 
-(with-test (:name (interrupt-thread :basics :no-unwinding))
+(with-test (:name (interrupt-thread :basics :no-unwinding)
+            :skipped-on :wasm) ; no-signals: interrupt-thread waits for a signal
   (let ((a 0))
     (interrupt-thread *current-thread* (lambda () (setq a 1)))
     (process-all-interrupts)
