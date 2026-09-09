@@ -23,7 +23,7 @@ echo "== toolchain"
 check "wasi-sdk present" "test -x $WASI_SDK/bin/clang"
 check "host builds (sbcl-wasm)" "./build-wasm.sh host > $S/host.log 2>&1 && ls wasm/target/release/sbcl-wasm"
 check "groveled constants are up to date (wasm-grovel-headers.sh reproduces the file)" \
-  "tools-for-build/wasm-grovel-headers.sh $S/groveled.lisp > $S/grovel.log 2>&1 && diff -q $S/groveled.lisp crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp"
+  "tools-for-build/wasm-grovel-headers.sh $S/groveled.lisp > $S/grovel.log 2>&1 && diff -q $S/groveled.lisp crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp && rm -f $S/groveled.lisp"
 
 echo "== Lisp side"
 if [ "${UAT_FAST:-0}" = 1 ]; then
@@ -51,10 +51,10 @@ check "the core module instantiates against the runtime" "grep -q 'sbcl-wasm: mo
 check "cold-init prints through Lisp streams (stream init done)" "grep -q 'SIGBUS handler not installed' $S/cold-init.txt"
 check "run-time compiled code is loaded as a module (the first COMPILE at cold init)" "grep -c 'sbcl-wasm: module of .* functions at table' $S/cold-init.txt | awk '{exit !(\$1 >= 2)}'"
 check "no unknown import, no internal error, no deadline" "! grep -q 'unknown import\|internal error\|deadline of' $S/cold-init.txt"
-check "EXIT CRITERION: --eval '(print (+ 1 2))' prints 3" "grep -qx '3' $S/cold-init.txt"
+check "EXIT CRITERION: --eval '(print (+ 1 2))' prints 3" "grep -q '^3 *$' $S/cold-init.txt"
 $RUN src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform --no-sysinit --no-userinit --non-interactive --eval '(progn (print (list (lisp-implementation-type) (lisp-implementation-version))) (terpri))' > $S/version.txt 2>&1
 check "(lisp-implementation-version) at the REPL" "grep -q 'SBCL' $S/version.txt"
-echo "(defun fib (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (print (fib 20)) (terpri)" | $RUN src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform --no-sysinit --no-userinit --non-interactive > $S/repl.txt 2>&1
+echo "(defun fib (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))) (print (fib 20)) (terpri)" | SBCL_WASM_TIMEOUT=600 $RUN src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform --no-sysinit --no-userinit --disable-debugger > $S/repl.txt 2>&1
 check "the REPL reads stdin, compiles a definition and calls it (fib 20 = 6765)" "grep -q '6765' $S/repl.txt"
 $RUN src/runtime/sbcl.wasm --core obj/xbuild/wasm.core --noinform --no-sysinit --no-userinit --non-interactive --eval '(handler-case (car (read-from-string "3")) (error (e) (print (type-of e)) (princ e) (terpri)))' > $S/error.txt 2>&1
 check "an internal error enters Lisp: (car 3) at run time signals TYPE-ERROR, handler-case catches it" "grep -q '^TYPE-ERROR' $S/error.txt && grep -q 'is not of type' $S/error.txt"

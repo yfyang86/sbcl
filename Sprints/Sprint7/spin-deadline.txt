@@ -1,0 +1,36 @@
+spinning
+sbcl-wasm: deadline of 2 s reached
+sbcl-wasm: error while executing at wasm backtrace:
+    0:    0x1e0 - spin.wasm!__original_main
+    1:    0x187 - spin.wasm!_start
+note: using the `WASMTIME_BACKTRACE_DETAILS=1` environment variable may show more debugging information
+
+Caused by:
+    interrupted (Ctrl-C twice, or the deadline)
+
+Stack backtrace:
+   0: wasmtime_internal_core::error::backtrace::capture
+   1: wasmtime_internal_core::error::error::Error::msg
+   2: sbcl_wasm::main::{{closure}}
+   3: <wasmtime::runtime::store::StoreInner<T> as wasmtime::runtime::vm::VMStore>::new_epoch_updated_deadline
+   4: wasmtime::runtime::vm::libcalls::new_epoch
+   5: wasmtime::runtime::vm::traphandlers::catch_unwind_and_record_trap
+   6: wasmtime::runtime::vm::libcalls::raw::new_epoch
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: wasmtime::runtime::vm::traphandlers::catch_traps
+  12: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call_raw
+  13: wasmtime::runtime::func::typed::TypedFunc<Params,Results>::call
+  14: sbcl_wasm::main
+  15: std::sys::backtrace::__rust_begin_short_backtrace
+  16: std::rt::lang_start::{{closure}}
+  17: std::rt::lang_start_internal
+  18: main
+  19: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  20: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  21: _start
+

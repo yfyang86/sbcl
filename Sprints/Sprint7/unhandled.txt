@@ -1,0 +1,18 @@
+;;;; SIGBUS handler not installed
+Unhandled TYPE-ERROR:
+  The value
+    3
+  is not of type
+    LIST
+
+Backtrace for: #<SB-THREAD:THREAD tid=1 "main thread" RUNNING {12BB0001}>
+0: (CAR #<unavailable argument>) [external]
+1: ("foreign function: #x0")
+2: ("foreign function: #x0")
+3: ("foreign function: #x0")
+4: ("foreign function: #x0")
+5: ("foreign function: #x0")
+6: ("foreign function: #x0")
+7: ("foreign function: #x0")
+
+unhandled condition in --disable-debugger mode, quitting

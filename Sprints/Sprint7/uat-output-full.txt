@@ -1,0 +1,39 @@
+== toolchain
+PASS  wasi-sdk present
+PASS  host builds (sbcl-wasm)
+PASS  groveled constants are up to date (wasm-grovel-headers.sh reproduces the file)
+== Lisp side
+PASS  build-wasm.sh lisp: pass-1 and pass-2 (xc.core, wasm.core, the core module)
+PASS  the core module validates (wasm-tools, all features)
+PASS  genesis wrote the map file
+PASS  genesis gave the target the routine table and the next free table index
+== runtime
+PASS  runtime builds: src/runtime/sbcl.wasm
+PASS  runtime build has no warnings
+PASS  sbcl.wasm validates
+PASS  sbcl.wasm exports the allocation, error, interrupt and module-loading entry points
+== cold init
+      last line: 3 
+PASS  the core module instantiates against the runtime
+PASS  cold-init prints through Lisp streams (stream init done)
+PASS  run-time compiled code is loaded as a module (the first COMPILE at cold init)
+PASS  no unknown import, no internal error, no deadline
+FAIL  EXIT CRITERION: --eval '(print (+ 1 2))' prints 3
+PASS  (lisp-implementation-version) at the REPL
+FAIL  the REPL reads stdin, compiles a definition and calls it (fib 20 = 6765)
+PASS  an internal error enters Lisp: (car 3) at run time signals TYPE-ERROR, handler-case catches it
+PASS  an unhandled error prints the condition and the erring frame, exits 1
+PASS  (exit :code 7) exits 7 (unwinding through the end-of-the-world catch)
+== regressions (Sprint 6)
+PASS  --version
+PASS  --help
+PASS  spin test program compiles
+PASS  deadline stops a spinning module with a backtrace
+PASS  coreindex.py decodes the map (finds !COLD-INIT by address)
+== regressions (levels 0 and 1)
+PASS  level-0: 16 checks
+PASS  after-xc core for the level-1 suite
+PASS  level-1: level1: passed=444 failed=0
+
+passed=27 failed=2
+UAT_EXIT=1
