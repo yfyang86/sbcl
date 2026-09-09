@@ -12,3 +12,6 @@ sysconf
 setenv
 # the host's child-process import (RUN-PROGRAM)
 wasm_run_process
+# wasi-libc's environment (POSIX-ENVIRON; RUN-PROGRAM passes it to children):
+# a variable, listed as such
+environ data

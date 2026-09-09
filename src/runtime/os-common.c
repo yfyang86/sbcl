@@ -122,7 +122,12 @@ os_deallocate(os_vm_address_t addr, os_vm_size_t len)
 #ifdef LISP_FEATURE_WIN32
     gc_assert(VirtualFree(addr, 0, MEM_RELEASE));
 #else
+#ifdef LISP_FEATURE_WASM
+    /* linear memory is never unmapped (wasi-mman.c); nothing to report */
+    sbcl_munmap(addr, len);
+#else
     if (sbcl_munmap(addr, len) == -1) perror("munmap");
+#endif
 #endif
 }
 #endif

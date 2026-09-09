@@ -1152,12 +1152,14 @@ T, a pathname or a stream (streams are carried by temporary files)."
              (err (if (eq error :output)
                       (list "output" "")
                       (output-spec error if-error-exists :error)))
-             (env (if environment-p environment nil))
+             ;; the child gets this process's environment (wasi-libc's,
+             ;; with SETENV's changes), not the host's: always explicit
+             (env (if environment-p environment (posix-environ)))
              (fields (append (list (princ-to-string (length argv)))
                              argv
                              (list (if directory (name directory) ""))
                              in out err
-                             (list (if environment-p (princ-to-string (length env)) "-1"))
+                             (list (princ-to-string (length env)))
                              env))
              (spec (string-to-octets
                     (with-output-to-string (s)

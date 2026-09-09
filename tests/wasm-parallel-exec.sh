@@ -39,7 +39,7 @@ grep -v "^0 " "$logdir/results.txt" | sort -k3 > "$logdir/failed-files.txt"
 [ -s "$logdir/failed-files.txt" ] && { echo "-- files whose run did not succeed (status, time, file):"; cat "$logdir/failed-files.txt"; }
 # the runner's own report of unexpected failures, per file
 for f in "$logdir"/*.log; do
-    grep -h "^ *Failure\|^ *Unexpected\|^ *Unhandled\|^ *Invalid exit status\|^ *Crashed\|^ *Timed out\|Expected failure\|Skipped" "$f" 2>/dev/null | grep -v "Expected failure\|Skipped" | sed "s|^|$(basename "$f" .log): |"
+    grep -h "^ Failure:\|^ Unexpected success:\|^ Leftover thread\|^ Invalid exit status:\|^Unhandled " "$f" 2>/dev/null | sed "s|^|$(basename "$f" .log): |"
 done > "$logdir/failures.txt"
 echo "unexpected failures: $(wc -l < "$logdir/failures.txt") (in $logdir/failures.txt)"
 head -100 "$logdir/failures.txt"
