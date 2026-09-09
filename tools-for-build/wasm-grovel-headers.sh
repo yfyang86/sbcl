@@ -11,14 +11,21 @@ cd "$(dirname "$0")/.."
 out=${1:-crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# grovel-headers.c includes os.h, whose runtime headers need the constants
+# genesis writes (upstream compiles it in make-target-1, after genesis):
+# take them from the runtime tree if the runtime was built, else from the
+# pass-2 products. Without either, the checked-in file stands.
 if [ -f src/runtime/genesis/sbcl.h ]; then
     inc=src/runtime
-else
+elif [ -f obj/xbuild/wasm/genesis-headers/sbcl.h ]; then
     mkdir -p "$tmp/genesis"
-    for f in WASM UNIX LINUX ELF GENERATIONAL GENCGC LITTLE_ENDIAN OS_PROVIDES_CLOCK_GETTIME OS_PROVIDES_DLOPEN SB_UNICODE; do
-        echo "#define LISP_FEATURE_$f 1"
-    done > "$tmp/genesis/sbcl.h"
+    cp obj/xbuild/wasm/genesis-headers/*.h "$tmp/genesis/"
     inc=$tmp
+else
+    echo "wasm-grovel-headers.sh: no genesis headers yet (src/runtime/genesis or" >&2
+    echo "  obj/xbuild/wasm/genesis-headers); run this after './build-wasm.sh lisp'." >&2
+    echo "  The checked-in $out is used until then." >&2
+    exit 2
 fi
 "$WASI_SDK/bin/clang" --target=wasm32-wasip1 -O1 \
     -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_GETPID \

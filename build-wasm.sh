@@ -23,7 +23,7 @@
 #              the runtime (e.g. run -- --noinform)
 #   clean      remove the Lisp build products and the runtime objects
 #   env        print the tool-chain settings and exit
-#   all        toolchain host grovel lisp runtime smoke
+#   all        toolchain host lisp runtime grovel smoke
 #
 # Options:
 #   --fast     lisp: skip pass-1/pass-2 when their products exist
@@ -146,7 +146,15 @@ step_toolchain() {
 
 step_grovel() {
     say "groveled constants (grovel-headers.c under the host)"
-    tools-for-build/wasm-grovel-headers.sh
+    # needs the genesis headers: run after 'lisp' (or 'runtime')
+    tools-for-build/wasm-grovel-headers.sh "$log_dir/groveled.lisp" || die "grovel failed"
+    if cmp -s "$log_dir/groveled.lisp" crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp; then
+        echo "crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp is up to date"
+    else
+        cp "$log_dir/groveled.lisp" crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp
+        echo "updated crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp:"
+        echo "  the constants changed; rebuild the Lisp side (rm obj/xbuild/wasm.core; ./build-wasm.sh --fast lisp runtime)"
+    fi
 }
 
 step_host() {
@@ -241,7 +249,7 @@ for step in $steps; do
         test) step_test ;;
         run) step_run ;;
         clean) step_clean ;;
-        all) step_toolchain; step_host; step_grovel; step_lisp; step_runtime; step_smoke ;;
+        all) step_toolchain; step_host; step_lisp; step_runtime; step_grovel; step_smoke ;;
         *) die "unknown step $step (see --help)" ;;
     esac
 done
