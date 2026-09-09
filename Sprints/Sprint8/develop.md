@@ -237,3 +237,18 @@ leaves behind.
     looks the layout up with `find-layout`, which also creates the
     forward-referenced layout the machine-code loaders create in
     `apply-fasl-fixups`.
+12. **A funcallable instance was entered with itself in LEXENV.**
+    `braid.fasl` installs the early accessor dfuns, closures over the
+    slot name that `make-early-accessor` returns, as the functions of
+    the generic functions (funcallable instances). The call sequence
+    (`emit-function-object-entry`, also used by `closure-tramp`) and
+    `call_into_lisp`'s `function_entry_index` walked from the instance
+    through its function slot to the simple-fun but left LEXENV as the
+    instance, so the closure's first value was read from the instance's
+    function slot: the closure itself, which `!bootstrap-slot-index`
+    reported as "not found". The machine-code backends enter a
+    funcallable instance through a trampoline that loads the function
+    slot into the LEXENV register; the walk now does the same (the
+    instance's function becomes LEXENV, a closure's LEXENV stays the
+    closure). `function_entry_index` also read a funcallable instance
+    through `struct closure`, that is, its trampoline word.
