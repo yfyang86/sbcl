@@ -262,3 +262,13 @@ leaves behind.
     in the linkage table. A call through the guard reaches it only when
     the alien type's signature matches `void ()`; otherwise the host's
     `call_indirect` type check traps first (open item).
+14. **A collection triggered under `*gc-inhibit*` was never taken.**
+    `trigger_gc` sets `*gc-pending*` and, only when `*gc-inhibit*` is
+    NIL, the pending bit the safe point polls; the exit of a
+    `without-gcing` calls `receive-pending-interrupt`, which on this
+    target lands in `wasm_pending_interrupt` with the bit clear, so
+    nothing happened, and with `*gc-pending*` already T `trigger_gc`
+    never set the bit afterwards. The warm compile ran out of heap 180
+    MB after its last collection (`SBCL_WASM_VERBOSE=1` shows the
+    collections). The safe point now runs the collection when either
+    the bit or `*gc-pending*` says so (and `*gc-inhibit*` is NIL).

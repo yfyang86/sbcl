@@ -347,7 +347,11 @@ void wasm_pending_interrupt(void)
      * value is in the register area or on the control stack here. While
      * *GC-INHIBIT* is set the bit stays, so that the end of the
      * WITHOUT-GCING (which calls receive-pending-interrupt) runs it. */
-    if (*word & WASM_PENDING_GC) {
+    /* A collection triggered while *GC-INHIBIT* was set leaves only
+     * *GC-PENDING* (trigger_gc sets the bit only when not inhibited);
+     * the WITHOUT-GCING exit's receive-pending-interrupt lands here with
+     * the bit clear, so the variable decides as well. */
+    if ((*word & WASM_PENDING_GC) || read_TLS(GC_PENDING, th) == LISP_T) {
         if (read_TLS(GC_INHIBIT, th) == NIL) {
             *word &= ~(uint32_t)WASM_PENDING_GC;
             if (read_TLS(GC_PENDING, th) == LISP_T) {
