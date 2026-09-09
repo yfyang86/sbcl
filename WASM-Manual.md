@@ -242,7 +242,18 @@ second afterwards.
   baseline report (`doc/wasm-port/baselines/`). `SBCL_WASM_TEST_TIMEOUT`
   (seconds, default 1800) bounds each file.
 - The ANSI suite: `tests/ansi-tests.sh` (`./build-wasm.sh ansi`; the
-  script checks out `tests/ansi-test`).
+  script checks out `tests/ansi-test`) hands over to
+  `tests/wasm-ansi-tests.sh`: the suite is loaded once into a saved
+  core (`tests/ansi-test/wasm-ansi.core`) and the tests run one at a
+  time (`tests/wasm-ansi-driver.lisp`), each result written to
+  `tests/ansi-test/results.txt` (`NAME PASS|FAIL|CRASHED`) before the
+  next starts, so a trap in one test ends the process, not the run: the
+  script restarts it and it resumes from the next test (a test that
+  crashed is retried once, then recorded as `CRASHED`). Output in
+  `tests/ansi-test/wasm-ansi.log`; the summary at the end;
+  `SBCL_WASM_ANSI_TIMEOUT` (seconds, default 1800) bounds one process.
+  `Sprints/Sprint9/baseline.sh REGRESS-LOG [ANSI-RESULTS]` adds its
+  results to the baseline report.
 - The contribs: `./build-wasm.sh contrib` builds the pure-Lisp ones into
   `obj/sbcl-home/contrib` (the blocklist is in `build-wasm.sh`);
   `(require :sb-md5)` and the others work in the saved core.

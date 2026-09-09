@@ -1,11 +1,15 @@
 #!/bin/sh
 # The baseline report of the regression suite on the WebAssembly port:
-#   Sprints/Sprint9/baseline.sh REGRESS-LOG > doc/wasm-port/baselines/sprint-8.txt
+#   Sprints/Sprint9/baseline.sh REGRESS-LOG [ANSI-RESULTS] > doc/wasm-port/baselines/sprint-8.txt
 # REGRESS-LOG is tests/wasm-parallel-exec.sh's output (its first line
 # names the log directory); the report lists every file that did not
 # complete and every test the runner reported as an unexpected failure,
 # unexpected success or leftover thread, from the per-file logs.
+# ANSI-RESULTS is tests/wasm-ansi-tests.sh's results file
+# (tests/ansi-test/results.txt, "NAME PASS|FAIL|CRASHED"); the report then
+# lists the ANSI tests that failed or crashed.
 log=$1
+ansi=${2:-}
 logdir=$(sed -n 's/^==== Writing logs to \(.*\) ====$/\1/p' "$log" | head -1)
 [ -d "$logdir" ] || { echo "no log directory in $log" >&2; exit 1; }
 cd "$(dirname "$0")/../.."
@@ -42,3 +46,15 @@ echo "unexpected failures: $(grep -h "^ Failure:" "$logdir"/*.log | sort -u | wc
 echo "expected failures: $(grep -h "^ Expected failure:" "$logdir"/*.log | wc -l)"
 echo "skipped (broken/irrelevant/unimplemented): $(grep -h "^ Skipped" "$logdir"/*.log | wc -l)"
 echo "successes: $(grep -h "^::: Success" "$logdir"/*.log | wc -l)"
+
+if [ -n "$ansi" ] && [ -f "$ansi" ]; then
+    echo
+    echo "== the ANSI suite (tests/ansi-tests.sh: tests/wasm-ansi-tests.sh, one test at a time; $ansi)"
+    echo "tests: $(wc -l < "$ansi")  pass: $(grep -c ' PASS$' "$ansi")  fail: $(grep -c ' FAIL$' "$ansi")  crashed: $(grep -c ' CRASHED$' "$ansi")"
+    echo
+    echo "== ANSI tests that failed"
+    grep ' FAIL$' "$ansi" | sed 's/ FAIL$//' | sort
+    echo
+    echo "== ANSI tests that crashed the process (a trap, or the process deadline)"
+    grep ' CRASHED$' "$ansi" | sed 's/ CRASHED$//' | sort
+fi

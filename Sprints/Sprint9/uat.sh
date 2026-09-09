@@ -70,11 +70,13 @@ check "(require :asdf)" "grep -q '^\"3\\.' $S/asdf.txt"
 echo "== the regression suite and the baseline"
 if [ "${UAT_SKIP_SUITES:-0}" != 1 ]; then
   check "tests/run-tests.sh across all files (wasm-parallel-exec.sh) runs to completion" "(cd tests && sh ./wasm-parallel-exec.sh -j 4 > ../$S/regress.log 2>&1); grep -q '^==== Summary' $S/regress.log"
-  check "the baseline report is written" "sh $S/baseline.sh $S/regress.log > doc/wasm-port/baselines/sprint-8.txt && grep -q 'files:' doc/wasm-port/baselines/sprint-8.txt"
-  check "tests/ansi-tests.sh runs to completion" "(cd tests && SBCL_WASM_TIMEOUT=14400 sh ./ansi-tests.sh > ../$S/ansi.log 2>&1); grep -q 'tests failed\|All tests passed\|failures' $S/ansi.log"
+  check "tests/ansi-tests.sh runs to completion (one test at a time, restarted after a trap)" "(cd tests && sh ./ansi-tests.sh > ../$S/ansi.log 2>&1); grep -q '^tests: ' $S/ansi.log && [ \"\$(cat tests/ansi-test/progress.txt)\" = DONE ]"
+  check "the baseline report is written" "mkdir -p doc/wasm-port/baselines && sh $S/baseline.sh $S/regress.log tests/ansi-test/results.txt > doc/wasm-port/baselines/sprint-8.txt && grep -q 'files:' doc/wasm-port/baselines/sprint-8.txt"
 else
-  check "the baseline report exists (suites skipped)" "grep -q 'files:' doc/wasm-port/baselines/sprint-8.txt"
+  check "the regression run completed (suites skipped: $S/regress.log)" "grep -q '^==== Summary' $S/regress.log"
+  check "the ANSI run completed (suites skipped: $S/ansi.log)" "grep -q '^tests: ' $S/ansi.log && [ \"\$(cat tests/ansi-test/progress.txt)\" = DONE ]"
 fi
+check "the baseline report lists the files, the failing tests and the ANSI results" "grep -q '^files: ' doc/wasm-port/baselines/sprint-8.txt && grep -q '^== unexpected failures' doc/wasm-port/baselines/sprint-8.txt && grep -q '^== the ANSI suite' doc/wasm-port/baselines/sprint-8.txt"
 
 echo "== regressions (Sprint 8)"
 ev '(print (+ 1 2))' > $S/eval.txt 2>&1

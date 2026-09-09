@@ -6,6 +6,11 @@
 # will collect coverage information from running the tests if the host
 # SBCL is built with :sb-cover-for-internals.
 
+# the WebAssembly port: one test at a time in a saved core, resuming
+# after a trap (tests/wasm-ansi-tests.sh)
+if [ -f ../src/runtime/sbcl.wasm ] && [ ! -x ../src/runtime/sbcl ]; then
+    exec sh ./wasm-ansi-tests.sh
+fi
 if [ ! -e ansi-test ]; then
    git clone --depth 1 https://github.com/sbcl/ansi-test.git
 fi

@@ -250,11 +250,11 @@ step_regress() {
 }
 
 step_ansi() {
-    say "the ANSI suite (tests/ansi-tests.sh; about an hour)"
+    say "the ANSI suite (tests/ansi-tests.sh, one test at a time in restarted processes)"
     [ -f output/sbcl.core ] || die "no output/sbcl.core: run the warm step first"
-    (cd tests && SBCL_WASM_TIMEOUT=${SBCL_WASM_TIMEOUT:-14400} sh ./ansi-tests.sh) > "$log_dir/ansi.log" 2>&1 \
+    (cd tests && sh ./ansi-tests.sh) > "$log_dir/ansi.log" 2>&1 \
         || { tail -20 "$log_dir/ansi.log"; die "ansi-tests.sh failed (see $log_dir/ansi.log)"; }
-    tail -5 "$log_dir/ansi.log"
+    tail -8 "$log_dir/ansi.log"
 }
 
 step_smoke() {
