@@ -110,8 +110,8 @@ pub fn engine_config() -> Config {
     c.wasm_multi_value(true);
     c.wasm_bulk_memory(true);
     c.wasm_reference_types(true);
-    c.max_wasm_stack(64 << 20);
-    c.async_stack_size(128 << 20); // must exceed max_wasm_stack
+    c.max_wasm_stack(128 << 20);   // below the Lisp thread's 256 MB stack (main)
+    c.async_stack_size(192 << 20); // must exceed max_wasm_stack
     c.epoch_interruption(true);
     match Cache::from_file(None) {
         Ok(cache) => {
@@ -391,7 +391,22 @@ fn instantiate(mut caller: Caller<'_, State>, ptr: u32, len: u32, register_area:
     Ok(1)
 }
 
+/// The Wasm call stack lives on the native stack of the thread running
+/// the module: `max_wasm_stack` (engine_config) bounds it so that a
+/// runaway recursion is a trap ("call stack exhausted") rather than a
+/// native stack overflow, which needs a thread whose stack exceeds that
+/// bound (the main thread's 8 MB does not).
 fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("sbcl-wasm".into())
+        .stack_size(256 << 20)
+        .spawn(run)
+        .expect("sbcl-wasm: cannot spawn the Lisp thread")
+        .join()
+        .expect("sbcl-wasm: the Lisp thread panicked")
+}
+
+fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ctx("usage: sbcl-wasm MODULE.wasm [args...]")?;
     let rest: Vec<String> = args.collect();

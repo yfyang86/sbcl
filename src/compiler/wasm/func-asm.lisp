@@ -109,8 +109,15 @@
     (nreverse arms)))
 
 (defun arm-at (arms position)
-  "The arm that starts at POSITION (a branch target)."
-  (or (find position arms :key #'arm-start)
+  "The arm that starts at POSITION (a branch target): the one with code
+there when two start there. A target at the end of a range gets an empty
+arm (COMPUTE-ARMS) so that a jump to it can leave for the function
+continuing there; when a range of the same function starts at that
+position, its first arm is the target and the empty arm is dead."
+  (or (find-if (lambda (arm) (and (= (arm-start arm) position)
+                                  (< (arm-start arm) (arm-end arm))))
+               arms)
+      (find position arms :key #'arm-start)
       (error "no arm starts at position ~D" position)))
 
 ;;;; Functions of a component
@@ -315,11 +322,15 @@ function so that a loader can renumber it."
 ;;; LISP_UNWIND. A block of this frame (its CFP slot equals CFP) is
 ;;; entered through the dispatcher at the arm index the block holds;
 ;;; any other block belongs to a caller, so the exception is rethrown.
-(defun emit-nlx-handler (buffer pc-local)
+(defun emit-nlx-handler (buffer pc-local ctx)
   (flet ((load-target ()
            (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+) ; global.get thread
            (buffer-byte buffer #x28) (buffer-byte buffer 2)                ; i32.load align=2
-           (buffer-uleb128 buffer sb-vm::+thread-unwind-target-offset+)))
+           (buffer-uleb128 buffer sb-vm::+thread-unwind-target-offset+))
+         (placeholder ()
+           ;; a five-byte immediate a loader patches
+           (loop repeat 4 do (buffer-byte buffer #x80))
+           (buffer-byte buffer #x00)))
     (load-target)
     (buffer-byte buffer #x28) (buffer-byte buffer 2)
     (buffer-uleb128 buffer (* sb-vm::unwind-block-cfp-slot sb-vm::n-word-bytes))
@@ -328,6 +339,25 @@ function so that a loader can renumber it."
     (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+)     ; if
     (buffer-byte buffer #x08) (buffer-uleb128 buffer sb-vm::+tag-lisp-unwind+) ; throw
     (buffer-byte buffer #x0B)                                             ; end
+    ;; the C shadow stack pointer the block saved (STORE-C-STACK-POINTER,
+    ;; nlx.lisp): restored through the runtime's c_stack_restore, called
+    ;; by the index in its linkage cell
+    (let ((function (fctx-function ctx)))
+      (load-target)
+      (buffer-byte buffer #x28) (buffer-byte buffer 2)
+      (buffer-uleb128 buffer (* sb-vm::unwind-block-c-sp-slot sb-vm::n-word-bytes))
+      (buffer-byte buffer #x41)                                           ; i32.const cell
+      (push (list (fill-pointer buffer) :foreign "c_stack_restore")
+            (wasm-function-patches function))
+      (placeholder)
+      (buffer-byte buffer #x28) (buffer-byte buffer 2) (buffer-uleb128 buffer 0) ; i32.load
+      (buffer-byte buffer #x11)                                           ; call_indirect
+      (push (list (fill-pointer buffer) '(:i32) '())
+            (wasm-function-type-patches function))
+      (push (list (fill-pointer buffer) :type (list '(:i32) '()))
+            (wasm-function-patches function))
+      (placeholder)
+      (buffer-byte buffer 0))                                             ; table 0
     (load-target)
     (buffer-byte buffer #x28) (buffer-byte buffer 2)
     (buffer-uleb128 buffer (* sb-vm::unwind-block-entry-pc-slot sb-vm::n-word-bytes))
@@ -529,7 +559,7 @@ with END) and the local declarations ((count . type) ...)."
         (pop *open*)
         (buffer-byte buffer #x0B)                                ; end of block $H
         (pop *open*)
-        (emit-nlx-handler buffer pc-local)))
+        (emit-nlx-handler buffer pc-local ctx)))
     (buffer-byte buffer #x0B)                                    ; end of loop
     (buffer-byte buffer #x00)                                    ; unreachable
     (buffer-byte buffer #x0B)                                    ; end of function

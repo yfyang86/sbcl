@@ -3161,8 +3161,12 @@ raw-address words."
              (or (gethash (string-upcase name) routine-index)
                  (error "assembly routine ~A is not in the core module" name)))
            (foreign-index (name)
+             ;; noted from the fasls' fixups; a patch the function
+             ;; assembler adds itself (EMIT-NLX-HANDLER's c_stack_restore)
+             ;; is noted here, before FOREIGN-SYMBOLS-TO-CORE runs
              (or (gethash name *cold-foreign-symbol-table*)
-                 (error "foreign symbol ~A was not noted" name)))
+                 (progn (alien-linkage-table-note-symbol name nil)
+                        (gethash name *cold-foreign-symbol-table*))))
            (layout-id (qualified-name)
              ;; PACKAGE::NAME of the classoid, a host symbol keying *COLD-LAYOUTS*
              (let* ((colons (search "::" qualified-name))

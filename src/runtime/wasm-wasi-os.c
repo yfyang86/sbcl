@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include "genesis/sbcl.h"
 #include "os.h"
@@ -108,3 +109,40 @@ int sb_GetTID(void) { return 1; }
 int _stat(const char *pathname, struct stat *sb) { return stat(pathname, sb); }
 int _lstat(const char *pathname, struct stat *sb) { return lstat(pathname, sb); }
 int _fstat(int fd, struct stat *sb) { return fstat(fd, sb); }
+
+/*** libc functions wasi-libc lacks, on which Lisp code depends ***/
+
+/* No user database: FILE-AUTHOR and USER-HOMEDIR-PATHNAME's fallbacks
+ * get NULL, as they would for an unknown uid (wrap.c's versions are
+ * #ifndef LISP_FEATURE_WASM). */
+char *uid_username(int uid) { (void)uid; return 0; }
+char *uid_homedir(uid_t uid) { (void)uid; return 0; }
+char *user_homedir(char *name) { (void)name; return 0; }
+uid_t getuid(void) { return 0; }
+
+/* MACHINE-INSTANCE */
+int gethostname(char *name, size_t len)
+{
+    if (len == 0) return -1;
+    strncpy(name, "wasm", len);
+    name[len - 1] = 0;
+    return 0;
+}
+
+/* UNIX-TMPFILE: an unnamed file in /tmp (no mkstemp in wasi-libc) */
+FILE *tmpfile(void)
+{
+    static int counter;
+    char path[64];
+    int fd, tries;
+    for (tries = 0; tries < 100; tries++) {
+        snprintf(path, sizeof path, "/tmp/sbcl-tmpfile-%d-%d", (int)getpid(), counter++);
+        fd = open(path, O_RDWR | O_CREAT | O_EXCL, 0600);
+        if (fd >= 0) {
+            unlink(path);
+            return fdopen(fd, "w+");
+        }
+        if (errno != EEXIST) break;
+    }
+    return 0;
+}

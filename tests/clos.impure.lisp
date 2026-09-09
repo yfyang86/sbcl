@@ -2781,7 +2781,8 @@
 (with-test (:name :layouf-of-nil)
   (assert (eq (sb-kernel:layout-of nil) (sb-kernel:find-layout 'null))))
 
-(with-test (:name (defmethod :on-classless-type))
+(with-test (:name (defmethod :on-classless-type)
+            :skipped-on :wasm) ; no-signals: with-timeout
   (handler-bind ((timeout (lambda (condition)
                             (declare (ignore condition))
                             (error "Timeout"))))

@@ -336,7 +336,8 @@
 
 ;;; bug 350: bignum printing so memory-hungry that heap runs out
 ;;; -- just don't stall here forever on a slow box
-(with-test (:name :bug-350)
+(with-test (:name :bug-350
+            :skipped-on :wasm) ; no-signals: with-timeout
   (handler-case
       (with-timeout 10
         (print (ash 1 1000000) (make-broadcast-stream)))

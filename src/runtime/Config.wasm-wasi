@@ -6,7 +6,7 @@
 # more information.
 
 TARGET = sbcl.wasm
-ASSEM_SRC =
+ASSEM_SRC = wasm-stack.S
 ARCH_SRC = wasm-arch.c
 OS_SRC = wasm-wasi-os.c wasi-mman.c wasm-interrupt.c wasm-linkage-table.c
 # wasi-libc's emulation libraries: the signal and mman surfaces the

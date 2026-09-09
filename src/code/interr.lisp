@@ -163,9 +163,18 @@
              (and (integerp address)
                   (sap-foreign-symbol (int-sap address))))))
 
-#-(or arm arm64 x86-64)
+#-(or arm arm64 x86-64 wasm)
 (defun undefined-alien-fun-error ()
   (error 'undefined-alien-function-error))
+
+;;; Entered from the runtime's undefined_alien_function with the address
+;;; of the linkage cell the compiled code read last (FOREIGN-SYMBOL-SAP).
+#+wasm
+(defun undefined-alien-fun-error (cell)
+  (error 'undefined-alien-function-error
+         :name (ignore-errors
+                (sb-impl::alien-linkage-index-to-name
+                 (sb-vm::alien-linkage-index-from-addr cell)))))
 
 (deferr invalid-arg-count-error (nargs)
   (let* ((frame (find-interrupted-frame))

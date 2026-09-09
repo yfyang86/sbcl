@@ -1,3 +1,6 @@
+;;; the WebAssembly port: contrib not built on this target (SBCL_WASM_CONTRIB_BLOCKLIST)
+#+wasm (invoke-restart 'run-tests::skip-file)
+
 #+(and linux gc-stress) (invoke-restart 'run-tests::skip-file)
 
 (handler-case (require :sb-mpfr)

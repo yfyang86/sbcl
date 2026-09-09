@@ -28,6 +28,9 @@
 ;;; the frame is set up and every register is in memory). 1 is an
 ;;; interrupt request, 2 makes the runtime trace every entry.
 (defconstant +thread-interrupt-pending-offset+ 456)
+;;; The linkage cell FOREIGN-SYMBOL-SAP read last (c-call.lisp): the
+;;; runtime's undefined_alien_function names the undefined alien by it.
+(defconstant +thread-foreign-cell-offset+ 468)
 
 ;;; The scratch locals +SCRATCH-I32-LOCAL+, +SCRATCH-F32-LOCAL+ and
 ;;; +SCRATCH-F64-LOCAL+ every Lisp function starts with are defined in

@@ -18,6 +18,8 @@ run_compiler=`pwd`/run-compiler.sh
 primary_c_source=`pwd`/foreigntest.c
 . ./expect.sh
 . ./subr.sh
+# the WebAssembly port: no-dlopen: shared objects need a C compiler and dlopen
+[ -n "$SBCL_WASM" ] && exit $EXIT_TEST_WIN
 
 run_sbcl <<EOF
 #+sparc (exit :code 2) ;skip

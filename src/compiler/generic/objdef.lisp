@@ -325,6 +325,9 @@ during backtrace.
   (cfp :c-type "lispobj *")
   #-(or x86 x86-64 arm64 arm) code
   entry-pc
+  ;; the C shadow stack pointer when the block was made, restored at the
+  ;; non-local entry (a throw through C frames abandons them)
+  #+wasm c-sp
   #+(and win32 x86) #(next-seh-frame seh-frame-handler)
   #+(and unbind-in-unwind (not c-stack-is-control-stack)) #(nfp nsp)
   #+unbind-in-unwind #(bsp current-catch))
@@ -334,6 +337,7 @@ during backtrace.
   (cfp :c-type "lispobj *")
   #-(or x86 x86-64 arm64 arm) code
   entry-pc
+  #+wasm c-sp
   #+(and win32 x86) #(next-seh-frame seh-frame-handler)
   #+(and unbind-in-unwind (not c-stack-is-control-stack)) #(nfp nsp)
   #+unbind-in-unwind bsp

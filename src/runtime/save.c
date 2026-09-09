@@ -932,6 +932,11 @@ gc_and_save(char *filename, int core_format, bool purify,
     save_to_filehandle(file, filename, lisp_init_function,
                        prepend_runtime, save_runtime_options,
                        compressed ? compression_level : COMPRESSION_LEVEL_NONE);
+#ifdef LISP_FEATURE_WASM
+    /* the core module, beside the core under its name (wasm-arch.c) */
+    extern void wasm_save_core_module(const char *filename);
+    wasm_save_core_module(filename);
+#endif
 #ifdef LISP_FEATURE_ELF
     if (elf_object) {
         file = fopen(filename, "r"); // reopen it for reading

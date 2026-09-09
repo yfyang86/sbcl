@@ -1,3 +1,6 @@
+;;; the WebAssembly port: contrib not built on this target (SBCL_WASM_CONTRIB_BLOCKLIST)
+#+wasm (invoke-restart 'run-tests::skip-file)
+
 (require :sb-posix)
 (let* ((pathname (test-util:generate-test-directory-name))
        (test-util:*test-directory* pathname))

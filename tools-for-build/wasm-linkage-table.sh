@@ -25,17 +25,43 @@ alias() {
         *) echo "$1" ;;
     esac
 }
+# A function that neither the runtime's objects nor wasi-libc define would
+# become an import of the declared type void (void) (the linker's
+# --allow-undefined), which a typed call with the Lisp signature refuses;
+# its entry is the guard undefined_alien_function instead, which the
+# compiled call checks for (CALL-OUT, c-call.lisp) and which signals
+# UNDEFINED-ALIEN-FUNCTION-ERROR. The check needs the objects, so it is
+# skipped on the first generation of a fresh build (the core's own list,
+# which the runtime defines in full).
+here=$(cd "$(dirname "$0")/.." && pwd)
+defined=$(mktemp); trap 'rm -f "$defined"' EXIT
+if [ -n "$WASI_SDK" ] && ls "$here"/src/runtime/*.o >/dev/null 2>&1; then
+    nm="$WASI_SDK/bin/llvm-nm"
+    sysroot="$WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1"
+    { ls "$here"/src/runtime/*.o | grep -v wasm-linkage-table.o | xargs "$nm" 2>/dev/null
+      "$nm" "$sysroot"/libc.a "$sysroot"/libm.a "$sysroot"/libwasi-emulated-*.a 2>/dev/null
+    } | awk 'NF==3 && $2 ~ /^[TtWw]$/ {print $3}' | sort -u > "$defined"
+fi
+undefined_p() {
+    [ -s "$defined" ] && ! grep -qx "$1" "$defined"
+}
 # declarations
 while read -r index kind name; do
     c=$(alias "$name")
     case "$kind" in
-        function) echo "extern void $c(void);" ;;
+        function) undefined_p "$c" || echo "extern void $c(void);" ;;
         data) echo "extern char $c[];" ;;
     esac
 done < "$symbols"
+echo "extern void undefined_alien_function(void);"
 echo "const struct wasm_linkage_entry wasm_linkage_table[] = {"
 while read -r index kind name; do
-    echo "    { \"$name\", (void*)$(alias "$name") },"
+    c=$(alias "$name")
+    if [ "$kind" = function ] && undefined_p "$c"; then
+        echo "    { \"$name\", (void*)undefined_alien_function }, /* undefined */"
+    else
+        echo "    { \"$name\", (void*)$c },"
+    fi
 done < "$symbols"
 cat <<FOOTER
     { 0, 0 }

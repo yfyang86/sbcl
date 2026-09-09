@@ -32,6 +32,7 @@ if [ -z "$WASI_SDK" ]; then
     done
 fi
 [ -x "$WASI_SDK/bin/clang" ] || { echo "wasi-sdk not found (set WASI_SDK)" >&2; exit 1; }
+export WASI_SDK   # for tools-for-build/wasm-linkage-table.sh
 [ -f "$headers/sbcl.h" ] || { echo "no genesis headers in $headers" >&2; exit 1; }
 
 mkdir -p output src/runtime/genesis

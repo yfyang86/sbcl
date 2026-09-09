@@ -96,6 +96,20 @@
     (inst i32.const n-fixnum-tag-bits)
     (inst i32.shl)))
 
+;;; Store the C shadow stack pointer (the runtime's c_stack_save,
+;;; wasm-stack.S) in the block's C-SP slot: a non-local exit lands in the
+;;; block's frame through the unwind tag, abandoning whatever C frames
+;;; were active in between (an error signalled from compiled code enters
+;;; Lisp from the runtime's internal_error) without their epilogues, so
+;;; the landing code (EMIT-NLX-HANDLER, func-asm.lisp) restores the
+;;; pointer saved here.
+(defun store-c-stack-pointer (block slot)
+  (load-reg block)
+  (emit-store-word (ash slot word-shift)
+    (inst i32.const (make-fixup "c_stack_save" :foreign))
+    (inst i32.load 0)
+    (inst call_indirect (make-fixup (list '() '(:i32)) :function-type))))
+
 ;;; Compute the address of the catch block from its TN, then store into
 ;;; the block the current Fp, Env, Unwind-Protect, and the entry PC.
 (define-vop (make-unwind-block)
@@ -109,7 +123,8 @@
     (storew temp block unwind-block-uwp-slot)
     (storew cfp-tn block unwind-block-cfp-slot)
     (storew code-tn block unwind-block-code-slot)
-    (store-entry-index block entry-label)))
+    (store-entry-index block entry-label)
+    (store-c-stack-pointer block unwind-block-c-sp-slot)))
 
 ;;; Like Make-Unwind-Block, except that we also store in the specified
 ;;; tag, and link the block into the Current-Catch list.
@@ -127,6 +142,7 @@
     (storew cfp-tn result catch-block-cfp-slot)
     (storew code-tn result catch-block-code-slot)
     (store-entry-index result entry-label)
+    (store-c-stack-pointer result catch-block-c-sp-slot)
     (storew tag result catch-block-tag-slot)
     (load-current-catch-block temp)
     (storew temp result catch-block-previous-catch-slot)

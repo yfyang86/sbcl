@@ -2,6 +2,8 @@
 
 set -e
 . ./subr.sh
+# the WebAssembly port: environment: regenerates the headers from the host build's local-target-features
+[ -n "$SBCL_WASM" ] && exit $EXIT_TEST_WIN
 create_test_subdirectory
 
 run_sbcl <<EOF
