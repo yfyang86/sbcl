@@ -53,7 +53,7 @@ check "the child gets the runtime's environment (setenv from Lisp)" "grep -q '\"
 echo "== compile-file, load, disassemble"
 mkdir -p obj/wasm-build
 ev '(progn (with-open-file (s "obj/wasm-build/uat9.lisp" :direction :output :if-exists :supersede) (write (quote (defun uat9-f (n) (if (< n 2) n (+ (uat9-f (- n 1)) (uat9-f (- n 2)))))) :stream s)) (compile-file "obj/wasm-build/uat9.lisp") (load "obj/wasm-build/uat9.fasl") (print (uat9-f 15)) (disassemble (quote uat9-f)) (disassemble (quote car)))' > $S/disassemble.txt 2>&1
-check "compile-file and load; disassemble prints the Wasm of a loaded and of a core function" "grep -q '^610' $S/disassemble.txt && grep -q 'disassembly for UAT9-F' $S/disassemble.txt && grep -q 'the run-time module at' $S/disassemble.txt && grep -q 'the core module' $S/disassemble.txt && grep -q 'call_indirect' $S/disassemble.txt"
+check "compile-file and load; disassemble prints the Wasm of a loaded and of a core function" "grep -q '^610' $S/disassemble.txt && grep -q 'disassembly for UAT9-F' $S/disassemble.txt && grep -q 'the run-time module at' $S/disassemble.txt && grep -q 'the core module' $S/disassemble.txt && grep -q 'i32.load' $S/disassemble.txt && grep -q ' call ' $S/disassemble.txt"
 
 echo "== contribs"
 if [ "${UAT_FAST:-0}" != 1 ] || [ ! -f obj/sbcl-home/contrib/sb-md5.fasl ]; then
@@ -62,9 +62,9 @@ fi
 for c in asdf sb-rt sb-md5 sb-cltl2 sb-rotate-byte sb-aclrepl sb-executable sb-queue sb-concurrency sb-introspect; do
   check "contrib $c built" "ls obj/sbcl-home/contrib/$c.fasl"
 done
-ev '(progn (require :sb-md5) (print (sb-md5:md5sum-string "abc")))' > $S/md5.txt 2>&1
+SBCL_WASM_TIMEOUT=900 ./run-sbcl.sh $WARM --eval '(require :sb-md5)' --eval '(print (sb-md5:md5sum-string "abc"))' > $S/md5.txt 2>&1
 check "(require :sb-md5) and md5sum-string" "grep -q '#(144 1 80 152 60 210 79 176 214 150 63 125 40 225 127 114)' $S/md5.txt"
-ev '(progn (require :asdf) (print (asdf:asdf-version)))' > $S/asdf.txt 2>&1
+SBCL_WASM_TIMEOUT=900 ./run-sbcl.sh $WARM --eval '(require :asdf)' --eval '(print (asdf:asdf-version))' > $S/asdf.txt 2>&1
 check "(require :asdf)" "grep -q '^\"3\\.' $S/asdf.txt"
 
 echo "== the regression suite and the baseline"

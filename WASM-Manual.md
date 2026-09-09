@@ -234,7 +234,9 @@ second afterwards.
   host's directory, and `sb-ext:run-program` runs children on the host
   (`sbcl_host.run_process`: synchronous, stdio as files or inherited;
   a `.wasm` program runs under the host), which is how the impure and
-  shell tests get their child SBCL.
+  shell tests get their child SBCL. The runtime's `getpid` is the
+  host's process id (`sbcl_host.process_id`; WASI has none), so
+  concurrent runtimes name their scratch files apart.
 - The regression suite: `tests/run-tests.sh [files]` as on any target,
   or all files in parallel with `tests/wasm-parallel-exec.sh [-j N]`
   (`./build-wasm.sh regress`), which logs each file separately and

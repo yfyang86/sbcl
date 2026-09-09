@@ -1,0 +1,4 @@
+;;;; SIGBUS handler not installed
+
+"yes
+" 

@@ -1,0 +1,39 @@
+== toolchain
+PASS  wasi-sdk present
+PASS  host builds (sbcl-wasm) with run_process
+== Lisp side, runtime, warm load
+PASS  build products present (fast mode)
+PASS  the runtime's linkage table has run_process, environ, sysconf
+== routing
+PASS  run-sbcl.sh runs the saved core through sbcl-wasm; paths are the host's; :wasm32 :wasi
+PASS  tests/subr.sh's run_sbcl routes through the wrapper (cwd tests/)
+== run-program through the host
+PASS  run-program: exit codes, captured and merged output, stream input, a child runtime
+PASS  the child gets the runtime's environment (setenv from Lisp)
+== compile-file, load, disassemble
+PASS  compile-file and load; disassemble prints the Wasm of a loaded and of a core function
+== contribs
+PASS  contrib asdf built
+PASS  contrib sb-rt built
+PASS  contrib sb-md5 built
+PASS  contrib sb-cltl2 built
+PASS  contrib sb-rotate-byte built
+PASS  contrib sb-aclrepl built
+PASS  contrib sb-executable built
+PASS  contrib sb-queue built
+PASS  contrib sb-concurrency built
+PASS  contrib sb-introspect built
+PASS  (require :sb-md5) and md5sum-string
+PASS  (require :asdf)
+== the regression suite and the baseline
+PASS  the regression run completed (suites skipped: Sprints/Sprint9/regress.log)
+PASS  the ANSI run completed (suites skipped: Sprints/Sprint9/ansi.log)
+PASS  the baseline report lists the files, the failing tests and the ANSI results
+== regressions (Sprint 8)
+PASS  --eval '(print (+ 1 2))' prints 3
+PASS  CLOS in the saved core
+== regressions (levels 0 and 1)
+PASS  level-0: 16 checks
+PASS  level-1: level1: passed=444 failed=0
+
+passed=28 failed=0
