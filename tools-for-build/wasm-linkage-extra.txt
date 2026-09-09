@@ -7,3 +7,6 @@ pre_verify_gen_0
 gencgc_verbose
 # the guard entry ENSURE-ALIEN-LINKAGE-INDEX gives an undefined alien function
 undefined_alien_function
+# libc functions the tests call (tests/test-util.lisp) that the runtime does not
+sysconf
+setenv

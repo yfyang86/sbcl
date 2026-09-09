@@ -19,6 +19,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
       | grep -oE '"[A-Za-z_0-9]+"' | tr -d '"'
   grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null || true
 } | sort -u > "$tmp/wanted"
+grep -v '^#' tools-for-build/wasm-linkage-extra.txt 2>/dev/null | sort -u > "$tmp/listed" || true
 # what the runtime defines (functions T/t/W/w, data D/B/R/C and their
 # lowercase) or only imports from libc (U), minus the table itself; a
 # definition wins over a reference
@@ -36,6 +37,11 @@ while read -r name; do
     elif grep -qx "$name" "$tmp/imported"; then
         # a libc symbol: functions, except the few data ones
         case "$name" in errno|environ|stdin|stdout|stderr) continue ;; esac
+        kind=function
+    elif grep -qx "$name" "$tmp/listed"; then
+        # listed in wasm-linkage-extra.txt but not referenced by the runtime:
+        # a libc function (the linker resolves it), or an import the host
+        # answers with a trap
         kind=function
     else continue
     fi

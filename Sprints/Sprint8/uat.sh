@@ -82,7 +82,7 @@ check "foreign calls and variables from the evaluator in the saved core (the run
 # one pure test file, the way tests/run-tests.lisp's pure-runner loads it: test-util
 # (WITH-TEST) in a fresh package using TEST-UTIL, then the failures list
 run_pure_test() {
-  SBCL_WASM_TIMEOUT=1800 $RUN $WARM --load tests/test-util.lisp --eval "(let ((*package* (make-package \"TEST-$$\" :use (list \"CL\" \"SB-EXT\" \"TEST-UTIL\")))) (load \"$1\") (format t \"~%failures: ~S~%\" test-util:*failures*) (sb-ext:exit :code (if test-util:*failures* 1 0)))"
+  SBCL_WASM_TIMEOUT=1800 $RUN $WARM --load tests/test-util.lisp --eval "(let ((*package* (make-package \"TEST-$$\" :use (list \"CL\" \"SB-EXT\" \"TEST-UTIL\"))) (test-util::*elapsed-times* nil)) (load \"$1\") (format t \"~%failures: ~S~%\" test-util:*failures*) (sb-ext:exit :code (if test-util:*failures* 1 0)))"
 }
 run_pure_test tests/gc-smoketest.pure.lisp > $S/gc-smoketest.txt 2>&1
 check "tests/gc-smoketest.pure.lisp passes (3 tests)" "grep -q 'failures: NIL' $S/gc-smoketest.txt && [ \$(grep -c '::: Success' $S/gc-smoketest.txt) -ge 3 ]"
