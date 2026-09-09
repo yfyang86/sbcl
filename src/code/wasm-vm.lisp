@@ -128,7 +128,8 @@
   (let* ((colons (search "::" qualified-name))
          (symbol (find-symbol (subseq qualified-name (+ colons 2))
                               (subseq qualified-name 0 colons))))
-    (sb-kernel::ensure-layout-id (or symbol (error "no such layout: ~A" qualified-name)))))
+    (sb-kernel::ensure-layout-id
+     (find-layout (or symbol (error "no such layout: ~A" qualified-name))))))
 
 (define-alien-routine ("wasm_instantiate_module" %wasm-instantiate-module) int
   (bytes system-area-pointer) (length unsigned-int) (table-base unsigned-int))

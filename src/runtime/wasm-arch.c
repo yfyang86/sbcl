@@ -37,6 +37,7 @@
 #include "breakpoint.h"
 #include "thread.h"
 #include "genesis/closure.h"
+#include "genesis/instance.h"
 #include "genesis/cons.h"
 #include "genesis/vector.h"
 #include "genesis/symbol.h"
@@ -118,7 +119,9 @@ typedef int32_t (*lisp_entry_fn)(void);
 
 /* The table index a function object is entered through: a simple-fun's
  * self slot, or that of the simple-fun a closure or funcallable
- * instance wraps (the same walk as EMIT-FUNCTION-OBJECT-ENTRY). */
+ * instance wraps (the same walk as EMIT-FUNCTION-OBJECT-ENTRY). A
+ * funcallable instance is entered as the function it holds, which
+ * becomes LEXENV. */
 static uint32_t function_entry_index(lispobj fun, lispobj *lexenv)
 {
     *lexenv = fun;
@@ -127,8 +130,13 @@ static uint32_t function_entry_index(lispobj fun, lispobj *lexenv)
         int widetag = widetag_of(obj);
         if (widetag == SIMPLE_FUN_WIDETAG)
             return (uint32_t)((struct simple_fun*)obj)->self;
-        if (widetag == CLOSURE_WIDETAG || widetag == FUNCALLABLE_INSTANCE_WIDETAG) {
+        if (widetag == CLOSURE_WIDETAG) {
             fun = ((struct closure*)obj)->fun; /* the simple-fun object */
+            continue;
+        }
+        if (widetag == FUNCALLABLE_INSTANCE_WIDETAG) {
+            fun = ((struct funcallable_instance*)obj)->function;
+            *lexenv = fun;
             continue;
         }
         lose("call_into_lisp: %p is not a function (widetag %x)", (void*)fun, widetag);

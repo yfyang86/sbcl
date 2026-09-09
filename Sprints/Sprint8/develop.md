@@ -219,3 +219,21 @@ leaves behind.
    are the patches of its Wasm blob, resolved by `fop-wasm-code` through
    `wasm-install-code`; the loader now skips the records, as
    `make-core-component` already did for in-memory compiles.
+10. **`room.lisp`'s key-info check assumes stack allocation.** Loading
+    `room.fasl` asserts that every `key-info` instance in the heap is in
+    `*key-info-hashset*`. `make-key-info` builds its candidate in a
+    `dx-let` and inserts a copy only when the set has no equal entry;
+    the backend does not honour `dynamic-extent` yet, so the candidates
+    are heap garbage that `list-allocated-objects` still walks (366
+    before a collection, 10 pinned by stale register and stack slots
+    after a full one). The check is `#-wasm` until stack allocation
+    exists.
+11. **`:layout-id` patches resolved the id of a symbol.**
+    `wasm-layout-id-of` (the loader's counterpart of genesis'
+    `cold-layout-id`) handed the classoid *name* to `ensure-layout-id`,
+    which read the id words of a symbol; `defpackage.fasl` was the first
+    fasl whose structure type check (`symtbl-magic`, from the
+    `symtbl-%cells` slot type) is not one of the wired layouts. It now
+    looks the layout up with `find-layout`, which also creates the
+    forward-referenced layout the machine-code loaders create in
+    `apply-fasl-fixups`.
