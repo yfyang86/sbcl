@@ -131,6 +131,10 @@ struct State {
     unwind_tag: Option<Tag>,
     /// the Lisp modules, kept alive for the life of the store
     lisp_modules: Vec<Instance>,
+    /// the store's resource limits: every compiled component is an
+    /// instance, and a long session (the test suites) makes far more than
+    /// Wasmtime's default limit of 10,000
+    limits: StoreLimits,
 }
 
 /// The (base, count) pair of a Lisp module's "sbcl.core.table" custom section.
@@ -412,10 +416,18 @@ fn main() -> Result<()> {
         .args(&argv)
         .preopened_dir("/", "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?
         .build_p1();
+    let limits = StoreLimitsBuilder::new()
+        .instances(usize::MAX)
+        .tables(usize::MAX)
+        .memories(usize::MAX)
+        .table_elements(usize::MAX)
+        .memory_size(usize::MAX)
+        .build();
     let mut store = Store::new(
         &engine,
-        State { wasi, register_area: None, memory: None, unwind_tag: None, lisp_modules: Vec::new() },
+        State { wasi, register_area: None, memory: None, unwind_tag: None, lisp_modules: Vec::new(), limits },
     );
+    store.limiter(|state| &mut state.limits);
 
     // Ctrl-C: count presses; the epoch tick makes running Wasm code call
     // the deadline callback below.
