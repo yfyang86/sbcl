@@ -5,3 +5,5 @@ gc_coalesce_string_literals
 verify_gens
 pre_verify_gen_0
 gencgc_verbose
+# the guard entry ENSURE-ALIEN-LINKAGE-INDEX gives an undefined alien function
+undefined_alien_function

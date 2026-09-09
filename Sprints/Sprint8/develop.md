@@ -252,3 +252,13 @@ leaves behind.
     instance's function becomes LEXENV, a closure's LEXENV stays the
     closure). `function_entry_index` also read a funcallable instance
     through `struct closure`, that is, its trampoline word.
+13. **No guard for an undefined alien function.** `run-program.fasl`
+    references `waitpid` and `environ`, which WASI does not provide;
+    `ensure-alien-linkage-index` gives such a function the address of
+    `undefined_alien_function`, which lives in `interrupt.c`, compiled
+    out on this target, so the lookup fell through to `(unreachable)`.
+    `wasm-interrupt.c` now defines it (it calls
+    `UNDEFINED-ALIEN-FUN-ERROR`) and `wasm-linkage-extra.txt` keeps it
+    in the linkage table. A call through the guard reaches it only when
+    the alien type's signature matches `void ()`; otherwise the host's
+    `call_indirect` type check traps first (open item).
