@@ -27,9 +27,17 @@
  * never has an interrupted pseudo-atomic section to service. */
 # define get_pseudo_atomic_atomic(th) 1
 # define clear_pseudo_atomic_atomic(th) ((void)0)
-# define get_pseudo_atomic_interrupted(th) 0
-# define set_pseudo_atomic_interrupted(th) ((void)0)
-# define clear_pseudo_atomic_interrupted(th) ((void)0)
+/* "interrupted" means a GC (or an interrupt) is pending: a bit of the
+ * register area's interrupt-pending word, which every XEP polls
+ * (wasm_pending_interrupt in wasm-arch.c services it). */
+extern uint32_t lisp_register_area[];
+# define WASM_PENDING_WORD (*(uint32_t*)((char*)lisp_register_area + 456))
+# define WASM_PENDING_INTERRUPT 1  /* the host's Ctrl-C */
+# define WASM_PENDING_TRACE 2      /* SBCL_WASM_TRACE_ENTRIES */
+# define WASM_PENDING_GC 4         /* set by trigger_gc through the macro below */
+# define get_pseudo_atomic_interrupted(th) ((WASM_PENDING_WORD & WASM_PENDING_GC) != 0)
+# define set_pseudo_atomic_interrupted(th) (WASM_PENDING_WORD |= WASM_PENDING_GC)
+# define clear_pseudo_atomic_interrupted(th) (WASM_PENDING_WORD &= ~(uint32_t)WASM_PENDING_GC)
 
 #elif defined LISP_FEATURE_SPARC || defined LISP_FEATURE_PPC || defined LISP_FEATURE_PPC64
 

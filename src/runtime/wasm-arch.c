@@ -37,12 +37,16 @@
 #include "breakpoint.h"
 #include "thread.h"
 #include "genesis/closure.h"
+#include "genesis/instance.h"
 #include "genesis/cons.h"
 #include "genesis/vector.h"
 #include "genesis/symbol.h"
 #include "genesis/static-symbols.h"
 #include "genesis/sap.h"
 #include "code.h"
+#include "gc.h"
+#include "pseudo-atomic.h"
+extern os_vm_size_t bytes_allocated;
 
 /* The register area of the (only) Lisp thread. Word slots 0..31 are the
  * registers, then the float registers, the internal-error arguments,
@@ -83,8 +87,8 @@ unsigned char fun_end_breakpoint_guts[4], fun_end_breakpoint_trap[4], fun_end_br
  * sections: there are no signals, and the runtime entry points are
  * called with every register flushed. */
 bool arch_pseudo_atomic_atomic(struct thread *thread) { return 1; }
-void arch_set_pseudo_atomic_interrupted(struct thread *thread) {}
-void arch_clear_pseudo_atomic_interrupted(struct thread *thread) {}
+void arch_set_pseudo_atomic_interrupted(struct thread *thread) { set_pseudo_atomic_interrupted(thread); }
+void arch_clear_pseudo_atomic_interrupted(struct thread *thread) { clear_pseudo_atomic_interrupted(thread); }
 
 unsigned int arch_install_breakpoint(void *pc)
 {
@@ -109,35 +113,54 @@ void arch_write_linkage_table_entry(int index, void *target_addr, int datap)
     *entry = (uint32_t)(uintptr_t)target_addr;
 }
 
+void wasm_check_stack(const char *where);
+static void wasm_check_indices(void);
+
 /*** calling into Lisp ***/
 
 typedef int32_t (*lisp_entry_fn)(void);
 
 /* The table index a function object is entered through: a simple-fun's
  * self slot, or that of the simple-fun a closure or funcallable
- * instance wraps (the same walk as EMIT-FUNCTION-OBJECT-ENTRY). */
-static uint32_t function_entry_index(lispobj fun, lispobj *lexenv)
+ * instance wraps (the same walk as EMIT-FUNCTION-OBJECT-ENTRY). A
+ * funcallable instance is entered as the function it holds, which
+ * becomes LEXENV. */
+static uint32_t function_entry_index(lispobj fun, lispobj *lexenv, lispobj *simple_fun)
 {
     *lexenv = fun;
     for (;;) {
         lispobj *obj = native_pointer(fun);
         int widetag = widetag_of(obj);
-        if (widetag == SIMPLE_FUN_WIDETAG)
+        if (widetag == SIMPLE_FUN_WIDETAG) {
+            if (simple_fun) *simple_fun = fun;
             return (uint32_t)((struct simple_fun*)obj)->self;
-        if (widetag == CLOSURE_WIDETAG || widetag == FUNCALLABLE_INSTANCE_WIDETAG) {
+        }
+        if (widetag == CLOSURE_WIDETAG) {
             fun = ((struct closure*)obj)->fun; /* the simple-fun object */
+            continue;
+        }
+        if (widetag == FUNCALLABLE_INSTANCE_WIDETAG) {
+            fun = ((struct funcallable_instance*)obj)->function;
+            *lexenv = fun;
             continue;
         }
         lose("call_into_lisp: %p is not a function (widetag %x)", (void*)fun, widetag);
     }
 }
 
+extern unsigned char *gc_card_mark;
+extern sword_t gc_card_table_mask;
+
 lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
 {
     struct thread *th = get_sb_vm_thread();
     uint32_t *r = lisp_register_area;
-    lispobj lexenv;
-    uint32_t index = function_entry_index(fun, &lexenv);
+    /* the store barrier's view of the card table (constant after startup) */
+    *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_TABLE) = (uint32_t)(uintptr_t)gc_card_mark;
+    *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_MASK) = (uint32_t)gc_card_table_mask;
+    wasm_check_stack("call_into_lisp");
+    lispobj lexenv, simple_fun;
+    uint32_t index = function_entry_index(fun, &lexenv, &simple_fun);
     /* A fresh frame at the current top of the control stack: the first
      * call starts at the stack's base. Arguments beyond the register
      * arguments go in the callee's frame slots, as a full call passes them. */
@@ -154,7 +177,10 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     r[reg_OCFP] = 0;
     r[reg_RA] = 0;
     r[reg_LEXENV] = lexenv;
-    r[reg_CODE] = lexenv;
+    /* the XEP derives its code object from the simple-fun in CODE (as a
+     * full call sets it): for a closure or funcallable instance, LEXENV
+     * is not it */
+    r[reg_CODE] = simple_fun;
     if (!r[reg_NSP])
         r[reg_NSP] = (uint32_t)(uintptr_t)((char*)number_stack + NUMBER_STACK_SIZE);
     if (getenv("SBCL_WASM_TRACE_CALLS"))
@@ -164,6 +190,7 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     /* 0: one value in A0; 1: several, the first in A0 (or none) */
     lispobj result = (flag == 0 || r[reg_NARGS] != 0) ? r[reg_A0] : NIL;
     r[reg_CSP] = (uint32_t)(uintptr_t)frame;
+    wasm_check_stack("call_into_lisp return");
     return result;
 }
 
@@ -253,6 +280,7 @@ static void describe_wasm_internal_error(os_context_t *context)
 __attribute__((export_name("internal_error")))
 void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
 {
+    wasm_check_stack("internal error");
     struct thread *th = get_sb_vm_thread();
     os_context_t context;
     uint32_t *args = (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
@@ -300,11 +328,41 @@ static uint32_t *interrupt_pending_word(void)
 {
     return (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_INTERRUPT_PENDING);
 }
+/* SBCL_WASM_CHECK_STACK=1: watch the bottom of the control stack (the
+ * toplevel frames, live for the whole session) and report the first
+ * point at which words there turn to zero (a debugging aid). */
+static uint32_t stack_base_copy[512];
+static int stack_base_valid;
+void wasm_check_stack(const char *where)
+{
+    static int enabled = -1;
+    if (enabled < 0) enabled = getenv("SBCL_WASM_CHECK_STACK") != 0;
+    if (!enabled) return;
+    struct thread *th = get_sb_vm_thread();
+    uint32_t *base = (uint32_t*)th->control_stack_start;
+    uint32_t csp = lisp_register_area[reg_CSP];
+    if (csp < (uint32_t)(uintptr_t)(base + 512)) { stack_base_valid = 0; return; }
+    if (!stack_base_valid) {
+        memcpy(stack_base_copy, base, sizeof stack_base_copy);
+        stack_base_valid = 1;
+        return;
+    }
+    int i, first = -1, last = -1, n = 0;
+    for (i = 0; i < 512; i++)
+        if (stack_base_copy[i] && !base[i]) { if (first < 0) first = i; last = i; n++; }
+    if (n >= 4)
+        fprintf(stderr, "sbcl-wasm: %d stack words in %d..%d (%p) became zero: %s (CSP %#x)\n",
+                n, first, last, (void*)(base + first), where, (unsigned)csp);
+    memcpy(stack_base_copy, base, sizeof stack_base_copy);
+}
+
 __attribute__((export_name("pending_interrupt")))
 void wasm_pending_interrupt(void)
 {
+    wasm_check_stack("safe point");
     uint32_t *word = interrupt_pending_word();
-    if (*word == 2) {
+    struct thread *th = get_sb_vm_thread();
+    if (*word & WASM_PENDING_TRACE) {
         lispobj lexenv = lisp_register_area[reg_LEXENV];
         fprintf(stderr, "; enter");
         if (lowtag_of(lexenv) == OTHER_POINTER_LOWTAG
@@ -313,7 +371,7 @@ void wasm_pending_interrupt(void)
             wasm_print_name(FDEFN(lexenv)->name);
         } else if (lowtag_of(lexenv) == FUN_POINTER_LOWTAG) {
             lispobj dummy;
-            fprintf(stderr, " table %u", (unsigned)function_entry_index(lexenv, &dummy));
+            fprintf(stderr, " table %u", (unsigned)function_entry_index(lexenv, &dummy, 0));
         } else {
             fprintf(stderr, " lexenv %#x", (unsigned)lexenv);
         }
@@ -322,10 +380,47 @@ void wasm_pending_interrupt(void)
                 lisp_register_area[reg_CFP], lisp_register_area[reg_CSP],
                 lisp_register_area[reg_OCFP], lisp_register_area[reg_A0],
                 lisp_register_area[reg_A1]);
-        return;
     }
-    if (*word == 1) {
-        *word = 0;
+    /* A GC is pending (trigger_gc, gengc.inc, through
+     * set_pseudo_atomic_interrupted): a safe point is where it runs, as
+     * the end of a pseudo-atomic section is elsewhere; every live Lisp
+     * value is in the register area or on the control stack here. While
+     * *GC-INHIBIT* is set the bit stays, so that the end of the
+     * WITHOUT-GCING (which calls receive-pending-interrupt) runs it. */
+    /* A collection triggered while *GC-INHIBIT* was set leaves only
+     * *GC-PENDING* (trigger_gc sets the bit only when not inhibited);
+     * the WITHOUT-GCING exit's receive-pending-interrupt lands here with
+     * the bit clear, so the variable decides as well. */
+    if ((*word & WASM_PENDING_GC) || read_TLS(GC_PENDING, th) == LISP_T) {
+        if (read_TLS(GC_INHIBIT, th) == NIL) {
+            *word &= ~(uint32_t)WASM_PENDING_GC;
+            if (read_TLS(GC_PENDING, th) == LISP_T) {
+                if (getenv("SBCL_WASM_VERBOSE"))
+                    fprintf(stderr, "sbcl-wasm: gc at a safe point (%zu bytes allocated)\n",
+                            (size_t)bytes_allocated);
+                /* maybe_gc calls SUB-GC through call_into_lisp, which uses
+                 * the same register area as the interrupted function: keep a
+                 * copy as an interrupt context (the collector pins what its
+                 * boxed registers reference, so the copy stays valid) and
+                 * put it back afterwards. */
+                os_context_t context;
+                memcpy(context.regs, lisp_register_area, sizeof context.regs);
+                context.pc = 0;
+                int index = fixnum_value(read_TLS(FREE_INTERRUPT_CONTEXT_INDEX, th));
+                if (index >= MAX_INTERRUPTS)
+                    lose("maximum interrupt nesting depth (%d) exceeded", MAX_INTERRUPTS);
+                bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
+                nth_interrupt_context(index, th) = &context;
+                maybe_gc(0);
+                nth_interrupt_context(index, th) = NULL;
+                unbind(th);
+                memcpy(lisp_register_area, context.regs, sizeof context.regs);
+                wasm_check_stack("after gc");
+            }
+        }
+    }
+    if (*word & WASM_PENDING_INTERRUPT) {
+        *word &= ~(uint32_t)WASM_PENDING_INTERRUPT;
         fprintf(stderr, "; interrupt request seen at a safe point (delivery to Lisp is not implemented yet)\n");
     }
 }
@@ -381,7 +476,18 @@ int32_t sbcl_host_instantiate(const void *bytes, int32_t length,
 /* Modules loaded at run time (WASM-INSTALL-CODE in wasm-vm.lisp) */
 int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
 {
-    return sbcl_host_instantiate(bytes, length, lisp_register_area, table_base);
+    wasm_check_stack("before instantiate");
+    /* SBCL_WASM_DUMP_INSTALLED=1: write every module installed at run
+     * time to obj/wasm-build/installed-BASE.wasm (a debugging aid) */
+    if (getenv("SBCL_WASM_DUMP_INSTALLED")) {
+        char name[64];
+        snprintf(name, sizeof name, "obj/wasm-build/installed-%u.wasm", (unsigned)table_base);
+        FILE *out = fopen(name, "wb");
+        if (out) { fwrite(bytes, 1, length, out); fclose(out); }
+    }
+    int ok = sbcl_host_instantiate(bytes, length, lisp_register_area, table_base);
+    wasm_check_stack("after instantiate");
+    return ok;
 }
 
 void wasm_load_core_module(const char *core_path)
@@ -403,10 +509,126 @@ void wasm_load_core_module(const char *core_path)
         fprintf(stderr, "; instantiating %s (%ld bytes)\n", path, size);
     if (!sbcl_host_instantiate(bytes, (int32_t)size, lisp_register_area, WASM_CORE_TABLE_BASE))
         lose("the host could not instantiate the core module %s", path);
+    /* The modules code loaded at run time made (WASM-INSTALL-CODE): a saved
+     * core keeps them in *WASM-LOADED-MODULES* as (table-base . bytes),
+     * newest first; instantiate them again, oldest first, at their table
+     * ranges. In a cold core the symbol is not yet bound. */
+    {
+        lispobj list = SymbolValue(WASM_LOADED_MODULES, 0);
+        if (lowtag_of(list) == LIST_POINTER_LOWTAG && list != NIL) {
+            int n = 0, i;
+            lispobj l;
+            for (l = list; l != NIL; l = CONS(l)->cdr) n++;
+            lispobj *entries = checked_malloc(n * sizeof(lispobj));
+            for (i = n - 1, l = list; i >= 0; i--, l = CONS(l)->cdr) entries[i] = CONS(l)->car;
+            if (!lisp_startup_options.noinform)
+                fprintf(stderr, "; instantiating %d saved modules\n", n);
+            /* SBCL_WASM_DUMP_MODULE=INDEX: write the saved module whose
+             * table range starts at or below INDEX to obj/wasm-build/
+             * module-BASE.wasm (a debugging aid) */
+            const char *dump = getenv("SBCL_WASM_DUMP_MODULE");
+            uint32_t dump_index = dump ? (uint32_t)strtoul(dump, 0, 10) : 0;
+            int dump_i = -1;
+            for (i = 0; dump && i < n; i++)
+                if ((uint32_t)fixnum_value(CONS(entries[i])->car) <= dump_index) dump_i = i;
+            for (i = 0; i < n; i++) {
+                struct cons *entry = CONS(entries[i]);
+                struct vector *v = VECTOR(entry->cdr);
+                if (i == dump_i) {
+                    char name[64];
+                    snprintf(name, sizeof name, "obj/wasm-build/module-%u.wasm",
+                             (unsigned)fixnum_value(entry->car));
+                    FILE *out = fopen(name, "wb");
+                    if (out) {
+                        fwrite(v->data, 1, vector_len(v), out);
+                        fclose(out);
+                        fprintf(stderr, "sbcl-wasm: wrote %s (%ld bytes)\n", name, (long)vector_len(v));
+                    }
+                }
+                if (!sbcl_host_instantiate((char*)v->data, (int32_t)vector_len(v), lisp_register_area,
+                                           (uint32_t)fixnum_value(entry->car)))
+                    lose("the host could not instantiate saved module %d", i);
+            }
+            free(entries);
+        }
+    }
+    /* gencgc arms auto_gc_trigger only at the end of a collection, and a
+     * cold image collects nothing until asked to (REINIT's GC-REINIT does
+     * that in a saved core): arm it now, so that allocation triggers the
+     * first collection instead of filling the heap. */
+    {
+        extern os_vm_size_t auto_gc_trigger, bytes_allocated;
+        if (!auto_gc_trigger)
+            auto_gc_trigger = bytes_allocated + bytes_consed_between_gcs;
+    }
     if (getenv("SBCL_WASM_TRACE_ENTRIES"))
-        *interrupt_pending_word() = 2;
+        *interrupt_pending_word() |= WASM_PENDING_TRACE;
+    /* SBCL_WASM_VERIFY_GC=1: the collector's heap verifier runs before and
+     * after every collection and reports each pointer to a stale object */
+    if (getenv("SBCL_WASM_VERIFY_GC")) {
+        extern generation_index_t verify_gens;
+        extern int pre_verify_gen_0;
+        verify_gens = 0;
+        pre_verify_gen_0 = 1;
+    }
     free(bytes);
     free(path);
+    wasm_check_indices();
+}
+
+/* SBCL_WASM_CHECK_FDEFNS=LIMIT: after the core is loaded, report every
+ * fdefn raw-addr and simple-fun self (table indices on this target) at
+ * or above LIMIT, and the alien linkage cells above it (a debugging aid
+ * for saved cores). */
+extern uword_t walk_generation(uword_t (*proc)(lispobj*,lispobj*,void*), generation_index_t, void*);
+static uword_t check_indices_region(lispobj *where, lispobj *end, void *arg)
+{
+    uint32_t limit = *(uint32_t*)arg;
+    while (where < end) {
+        lispobj header = *where;
+        sword_t n = 2;
+        if (!is_cons_half(header)) {
+            int widetag = header_widetag(header);
+            n = object_size(where);
+            if (widetag == FDEFN_WIDETAG) {
+                struct fdefn *f = (struct fdefn*)where;
+                uint32_t raw = (uint32_t)(uintptr_t)f->raw_addr;
+                if (raw >= limit) {
+                    fprintf(stderr, "sbcl-wasm: fdefn @ %p raw %u fun %#x name ",
+                            (void*)where, (unsigned)raw, (unsigned)f->fun);
+                    wasm_print_name(f->name);
+                    fprintf(stderr, "\n");
+                }
+            } else if (widetag == CODE_HEADER_WIDETAG) {
+                struct code *code = (struct code*)where;
+                int i;
+                struct simple_fun *fun;
+                for_each_simple_fun(i, fun, code, 1, {
+                    if ((uint32_t)fun->self >= limit)
+                        fprintf(stderr, "sbcl-wasm: simple-fun @ %p (code @ %p) self %u\n",
+                                (void*)fun, (void*)code, (unsigned)fun->self);
+                });
+            }
+        }
+        where += n;
+    }
+    return 0;
+}
+static void wasm_check_indices(void)
+{
+    const char *env = getenv("SBCL_WASM_CHECK_FDEFNS");
+    if (!env) return;
+    uint32_t limit = (uint32_t)strtoul(env, 0, 10);
+    fprintf(stderr, "sbcl-wasm: checking table indices >= %u\n", (unsigned)limit);
+    check_indices_region((lispobj*)STATIC_SPACE_START, static_space_free_pointer, &limit);
+    walk_generation(check_indices_region, -1, &limit);
+    int i;
+    for (i = 0; i < (int)(ALIEN_LINKAGE_SPACE_SIZE / ALIEN_LINKAGE_TABLE_ENTRY_SIZE); i++) {
+        uint32_t cell = *(uint32_t*)(ALIEN_LINKAGE_SPACE_START + i * ALIEN_LINKAGE_TABLE_ENTRY_SIZE);
+        if (cell >= limit && cell < 0x1000000)
+            fprintf(stderr, "sbcl-wasm: linkage cell %d = %u\n", i, (unsigned)cell);
+    }
+    fprintf(stderr, "sbcl-wasm: index check done\n");
 }
 
 /* The monitor (ldb) is not built on this target. */

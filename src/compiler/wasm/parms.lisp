@@ -121,6 +121,10 @@
         ;; interrupt handling
         *pseudo-atomic-atomic*
         *pseudo-atomic-interrupted*)
+    ;; the modules loaded at run time, (table-base . bytes) newest first:
+    ;; the runtime instantiates them again when a saved core starts
+    ;; (wasm-vm.lisp, wasm-arch.c)
+    *wasm-loaded-modules*
     ,@*runtime-asm-routines*)
   #'equalp)
 

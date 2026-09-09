@@ -83,11 +83,18 @@
 
 ;;;; Unwind block hackery:
 
-;;; Store the entry index of ENTRY-LABEL in the block's entry-pc slot.
+;;; Store the entry index of ENTRY-LABEL in the block's entry-pc slot, as
+;;; a fixnum: the block lives on the control stack, which the GC scans
+;;; precisely, so every word of it must be a Lisp object (a raw index
+;;; whose low bits are not zero would be taken for an immediate or a
+;;; pointer). The unwind landing code (EMIT-NLX-HANDLER, func-asm.lisp)
+;;; shifts it back.
 (defun store-entry-index (block entry-label)
   (load-reg block)
   (emit-store-word (ash unwind-block-entry-pc-slot word-shift)
-    (inst label-index entry-label)))
+    (inst label-index entry-label)
+    (inst i32.const n-fixnum-tag-bits)
+    (inst i32.shl)))
 
 ;;; Compute the address of the catch block from its TN, then store into
 ;;; the block the current Fp, Env, Unwind-Protect, and the entry PC.

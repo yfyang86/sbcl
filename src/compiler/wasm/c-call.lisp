@@ -32,9 +32,15 @@
     (make-wired-tn* prim-type stack-sc frame-size)))
 
 (define-alien-type-method (integer :arg-tn) (type state)
-  (if (alien-integer-type-signed type)
-      (stack-arg-tn state 'signed-byte-32 signed-stack-sc-number)
-      (stack-arg-tn state 'unsigned-byte-32 unsigned-stack-sc-number)))
+  (cond ((= (alien-type-bits type) 33)   ; the high half of a 64-bit integer, see below
+         (stack-arg-tn state 'wasm-i64-high
+                       (if (alien-integer-type-signed type)
+                           signed-stack-sc-number
+                           unsigned-stack-sc-number)))
+        ((alien-integer-type-signed type)
+         (stack-arg-tn state 'signed-byte-32 signed-stack-sc-number))
+        (t
+         (stack-arg-tn state 'unsigned-byte-32 unsigned-stack-sc-number))))
 
 (define-alien-type-method (system-area-pointer :arg-tn) (type state)
   (declare (ignore type))
@@ -52,9 +58,14 @@
   (let ((num-results (result-state-num-results state)))
     (setf (result-state-num-results state) (1+ num-results))
     (multiple-value-bind (ptype reg-sc)
-        (if (alien-integer-type-signed type)
-            (values 'signed-byte-32 signed-reg-sc-number)
-            (values 'unsigned-byte-32 unsigned-reg-sc-number))
+        (cond ((= (alien-type-bits type) 33)   ; the high half of a 64-bit result
+               (values 'wasm-i64-high (if (alien-integer-type-signed type)
+                                          signed-reg-sc-number
+                                          unsigned-reg-sc-number)))
+              ((alien-integer-type-signed type)
+               (values 'signed-byte-32 signed-reg-sc-number))
+              (t
+               (values 'unsigned-byte-32 unsigned-reg-sc-number)))
       (make-wired-tn* ptype reg-sc (result-reg-offset num-results)))))
 
 (define-alien-type-method (system-area-pointer :result-tn) (type state)
@@ -82,6 +93,83 @@
            (= (alien-type-bits type) 32))
       `(logand ,alien ,(1- (ash 1 (alien-type-bits type))))
       alien))
+
+;;;; 64-bit integers
+;;;;
+;;;; A C function taking or returning a 64-bit integer has an i64 in its
+;;;; Wasm type, and the alien machinery of a 32-bit target has no 64-bit
+;;;; representation. The transform below (after the arm backend's
+;;;; long-long support) splits a 64-bit argument into two 32-bit halves
+;;;; and a 64-bit result into two 32-bit values. The high half is given
+;;;; the alien type (signed 33) or (unsigned 33): a width no C type has,
+;;;; which the :ARG-TN and :RESULT-TN methods above turn into a TN of
+;;;; primitive type WASM-I64-HIGH, and that is how CALL-OUT knows to merge
+;;;; the pair into one i64 parameter (or to split an i64 result into the
+;;;; two result registers).
+
+(!def-primitive-type wasm-i64-high (signed-reg unsigned-reg signed-stack unsigned-stack)
+  :type (or (signed-byte 32) (unsigned-byte 32)))
+
+(defconstant +wasm-i64-high-bits+ 33)
+
+(defun wasm-i64-high-tn-p (tn)
+  (eq (sb-c:primitive-type-name (sb-c::tn-primitive-type tn)) 'wasm-i64-high))
+
+(deftransform %alien-funcall ((function type &rest args) * * :node node)
+  (aver (sb-c:constant-lvar-p type))
+  (let* ((type (sb-c:lvar-value type))
+         (env (sb-c::node-lexenv node))
+         (arg-types (alien-fun-type-arg-types type))
+         (result-type (alien-fun-type-result-type type)))
+    (aver (= (length arg-types) (length args)))
+    (flet ((wide-p (type)
+             ;; not the 33-bit marker halves the transform itself makes
+             (and (alien-integer-type-p type)
+                  (> (sb-alien::alien-integer-type-bits type) +wasm-i64-high-bits+)))
+           (high-type (type)
+             (parse-alien-type (if (alien-integer-type-signed type)
+                                   `(signed ,+wasm-i64-high-bits+)
+                                   `(unsigned ,+wasm-i64-high-bits+))
+                               env)))
+      (if (or (some #'wide-p arg-types) (wide-p result-type))
+          (collect ((new-args) (lambda-vars) (new-arg-types))
+            (loop for type in arg-types
+                  for arg = (gensym)
+                  do (lambda-vars arg)
+                     (cond ((wide-p type)
+                            (new-args `(logand ,arg #xffffffff))
+                            (new-args `(ash ,arg -32))
+                            (new-arg-types (parse-alien-type '(unsigned 32) env))
+                            (new-arg-types (high-type type)))
+                           (t
+                            (new-args arg)
+                            (new-arg-types type))))
+            (if (wide-p result-type)
+                (let ((new-result-type
+                        (let ((sb-alien::*values-type-okay* t))
+                          (parse-alien-type
+                           `(values (unsigned 32)
+                                    ,(if (alien-integer-type-signed result-type)
+                                         `(signed ,+wasm-i64-high-bits+)
+                                         `(unsigned ,+wasm-i64-high-bits+)))
+                           env))))
+                  `(lambda (function type ,@(lambda-vars))
+                     (declare (ignore type))
+                     (multiple-value-bind (low high)
+                         (%alien-funcall function
+                                         ',(make-alien-fun-type
+                                            :arg-types (new-arg-types)
+                                            :result-type new-result-type)
+                                         ,@(new-args))
+                       (logior low (ash high 32)))))
+                `(lambda (function type ,@(lambda-vars))
+                   (declare (ignore type))
+                   (%alien-funcall function
+                                   ',(make-alien-fun-type
+                                      :arg-types (new-arg-types)
+                                      :result-type result-type)
+                                   ,@(new-args)))))
+          (sb-c::give-up-ir1-transform)))))
 
 (defun make-call-out-tns (type)
   (let ((arg-state (make-arg-state)))
@@ -147,17 +235,44 @@
         (store-stack-tn nfp-save cur-nfp))
       (do ((ref args (tn-ref-across ref)))
           ((null ref))
-        (let ((tn (tn-ref-tn ref)))
-          (push (alien-tn-valtype tn) params)
-          (emit-alien-arg tn)))
+        (let ((tn (tn-ref-tn ref))
+              (next (tn-ref-across ref)))
+          (cond ((and next (wasm-i64-high-tn-p (tn-ref-tn next)))
+                 ;; a 64-bit integer: the low and high halves become one i64
+                 (emit-alien-arg tn)
+                 (inst i64.extend_i32_u)
+                 (emit-alien-arg (tn-ref-tn next))
+                 (inst i64.extend_i32_u)
+                 (inst i64.const 32)
+                 (inst i64.shl)
+                 (inst i64.or)
+                 (push :i64 params)
+                 (setf ref next))
+                (t
+                 (push (alien-tn-valtype tn) params)
+                 (emit-alien-arg tn)))))
       (do ((ref results (tn-ref-across ref)))
           ((null ref))
         (push (tn-ref-tn ref) result-tns))
       (setf params (nreverse params)
             result-tns (nreverse result-tns))
       (load-reg function)
-      (inst call_indirect (make-fixup (list params (mapcar #'alien-tn-valtype result-tns))
-                                      :function-type))
+      (cond ((and (= (length result-tns) 2)
+                  (wasm-i64-high-tn-p (second result-tns)))
+             ;; a 64-bit result: one i64, stored across the two adjacent
+             ;; result registers (little-endian: low then high)
+             (aver (= (tn-offset (second result-tns)) (1+ (tn-offset (first result-tns)))))
+             (inst call_indirect (make-fixup (list params '(:i64)) :function-type))
+             (inst f64.reinterpret_i64)
+             (inst local.set +scratch-f64-local+)
+             (inst global.get +thread-global+)
+             (inst local.get +scratch-f64-local+)
+             (inst i64.reinterpret_f64)
+             (inst i64.store (register-byte-offset (tn-offset (first result-tns))))
+             (setf result-tns '()))
+            (t
+             (inst call_indirect (make-fixup (list params (mapcar #'alien-tn-valtype result-tns))
+                                             :function-type))))
       ;; the results are on the operand stack, last one on top; each is
       ;; parked in a scratch local while its register address is pushed
       (dolist (tn (reverse result-tns))

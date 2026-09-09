@@ -253,9 +253,16 @@ DEFINE_LISP_ENTRYPOINT(alloc_list, 0, cons, PAGE_TYPE_CONS)
 
 #else
 
+#ifdef LISP_FEATURE_WASM
+extern void wasm_check_stack(const char*);
+#define WASM_CHECK_STACK() wasm_check_stack("alloc")
+#else
+#define WASM_CHECK_STACK()
+#endif
 #define DEFINE_LISP_ENTRYPOINT(name, largep, tlab, page_type) \
 NO_SANITIZE_MEMORY lispobj *name(sword_t nbytes) { \
     struct thread *self = get_sb_vm_thread(); \
+    WASM_CHECK_STACK(); \
     return lisp_alloc(largep, THREAD_ALLOC_REGION(self,tlab), nbytes, page_type, self); }
 
 DEFINE_LISP_ENTRYPOINT(alloc, nbytes >= LARGE_OBJECT_SIZE, mixed, PAGE_TYPE_MIXED)
@@ -538,6 +545,13 @@ void gc_heap_exhausted_error_or_lose (sword_t available, sword_t requested)
                 ("Signalling HEAP-EXHAUSTED in a WITHOUT-INTERRUPTS.");
         /* available and requested should be double word aligned, thus
            they can passed as fixnums and shifted later. */
+#ifdef LISP_FEATURE_WASM
+        if (getenv("SBCL_WASM_VERBOSE"))
+        fprintf(stderr, "sbcl-wasm: heap-exhausted-error: symbol %#x fdefn %#x function %#x\n",
+                (unsigned)INTERFACE_SYMBOLS[HEAP_EXHAUSTED_ERROR_fname_index],
+                (unsigned)SYMBOL(INTERFACE_SYMBOLS[HEAP_EXHAUSTED_ERROR_fname_index])->fdefn,
+                (unsigned)StaticSymbolFunction(HEAP_EXHAUSTED_ERROR));
+#endif
         funcall2(StaticSymbolFunction(HEAP_EXHAUSTED_ERROR), available, requested);
         lose("HEAP-EXHAUSTED-ERROR fell through");
     }

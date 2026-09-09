@@ -1,0 +1,39 @@
+;;;; SIGBUS handler not installed
+
+; file: /tests/test-util.lisp
+; in: DEFUN RUN-TEST
+;     (TEST-UTIL::FAIL-TEST :UNEXPECTED-SUCCESS TEST-UTIL::NAME NIL)
+; 
+; caught STYLE-WARNING:
+;   undefined function: TEST-UTIL::FAIL-TEST
+
+;     (TEST-UTIL::SKIPPED-P TEST-UTIL::FAILS-ON)
+; 
+; caught STYLE-WARNING:
+;   undefined function: TEST-UTIL::SKIPPED-P
+
+;     (TEST-UTIL::START-TEST)
+; 
+; caught STYLE-WARNING:
+;   undefined function: TEST-UTIL::START-TEST
+; 
+; compilation unit finished
+;   Undefined functions:
+;     FAIL-TEST SKIPPED-P START-TEST
+;   caught 3 STYLE-WARNING conditions
+
+; file: /tests/test-util.lisp
+; in: DEFMACRO WITH-TEST
+;     (TEST-UTIL::SKIPPED-P TEST-UTIL::BROKEN-ON)
+; 
+; caught STYLE-WARNING:
+;   undefined function: TEST-UTIL::SKIPPED-P
+; 
+; compilation unit finished
+;   Undefined function:
+;     SKIPPED-P
+;   caught 1 STYLE-WARNING condition
+::: Running :FIXEDOBJ-SIZED-CORRECTLY
+::: Success :FIXEDOBJ-SIZED-CORRECTLY
+
+failures: NIL

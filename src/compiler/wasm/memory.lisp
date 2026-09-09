@@ -25,7 +25,9 @@
   (:args (object :scs (descriptor-reg))
          (value :scs (descriptor-reg any-reg)))
   (:variant-vars offset lowtag)
+  (:vop-var vop)
   (:generator 4
+    (emit-gengc-barrier object (vop-nth-arg 1 vop))
     (storew value object offset lowtag)))
 
 ;;; Set the stable-hash-required bit in the header of an instance. There

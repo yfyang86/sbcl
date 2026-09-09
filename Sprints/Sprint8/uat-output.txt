@@ -1,0 +1,39 @@
+== toolchain
+PASS  wasi-sdk present
+PASS  host builds (sbcl-wasm)
+== Lisp side
+PASS  pass-2 products present (fast mode)
+PASS  the core module validates (wasm-tools, all features)
+== runtime
+PASS  runtime builds: src/runtime/sbcl.wasm
+PASS  runtime build has no warnings
+PASS  sbcl.wasm validates
+PASS  the linkage table was extended for code loaded at run time
+PASS  groveled constants are up to date
+== the garbage collector
+PASS  (gc) and (gc :full t) return, the heap verifier clean before and after each
+PASS  allocation stress: 6 million vectors through the automatic trigger, live data intact
+PASS  an EQ hash table of 2000 keys survives five collections (rehash)
+PASS  weak pointers: the live referent kept, the dead one broken
+PASS  defun, compile and an error after collections (the store barrier and the code written flag)
+== foreign calls and files
+PASS  a foreign call with a 64-bit integer (get_timezone's time_t) works: 3900000000 is 2023-08-02 21:20:00 UTC
+PASS  compile-file writes a fasl with the Wasm code; load instantiates it; the functions survive a GC
+== the warm load and the saved core
+PASS  output/sbcl.core present (warm load skipped)
+PASS  the saved core restarts (its run-time modules instantiated again) and evaluates
+PASS  PCL and the warm functions are there (find-class, describe)
+PASS  the saved core's REPL reads stdin, compiles and calls (fib 20 = 6765)
+PASS  CLOS in the saved core: defclass, defmethod, an accessor through compile
+PASS  foreign calls and variables from the evaluator in the saved core (the run-time foreign-symbol lookup)
+PASS  tests/gc-smoketest.pure.lisp passes (3 tests)
+PASS  tests/coreparse.pure.lisp passes (its tests are for immobile space; the file loads)
+== regressions (Sprint 7)
+PASS  the cold core: --eval '(print (+ 1 2))' prints 3
+PASS  --version
+PASS  an internal error enters the condition system
+== regressions (levels 0 and 1)
+PASS  level-0: 16 checks
+PASS  level-1: level1: passed=444 failed=0
+
+passed=29 failed=0

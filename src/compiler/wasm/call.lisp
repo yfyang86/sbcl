@@ -473,7 +473,10 @@
 
 ;;; FUNCTION := the simple-fun of the function object in LEXENV: the
 ;;; object itself, the fun slot of a closure, or the function slot of a
-;;; funcallable instance (which may hold a closure).
+;;; funcallable instance (which may hold a closure). A funcallable
+;;; instance is entered as the function it holds: LEXENV becomes that
+;;; function, as the trampoline of the machine-code backends arranges,
+;;; so that a closure in the slot finds its values.
 (defun emit-function-object-entry (lexenv function)
   (let ((loop (gen-label))
         (done (gen-label))
@@ -490,8 +493,9 @@
     (inst i32.const closure-widetag)
     (inst i32.eq)
     (inst jump-if closure)
-    ;; a funcallable instance
+    ;; a funcallable instance: call the function it holds
     (loadw function function funcallable-instance-function-slot fun-pointer-lowtag)
+    (move lexenv function)
     (inst jump loop)
     (emit-label closure)
     (loadw function function closure-fun-slot fun-pointer-lowtag)

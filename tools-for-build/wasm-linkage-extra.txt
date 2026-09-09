@@ -1,0 +1,12 @@
+# Foreign names to keep in the linkage table besides those the Lisp sources
+# mention (tools-for-build/wasm-linkage-extra.sh): used by build scripts
+# and by debugging at the REPL.
+gc_coalesce_string_literals
+verify_gens
+pre_verify_gen_0
+gencgc_verbose
+# the guard entry ENSURE-ALIEN-LINKAGE-INDEX gives an undefined alien function
+undefined_alien_function
+# libc functions the tests call (tests/test-util.lisp) that the runtime does not
+sysconf
+setenv

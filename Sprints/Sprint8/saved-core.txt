@@ -1,0 +1,12 @@
+This is SBCL 2.6.8.wasm-dev.7c0a84a, an implementation of ANSI Common Lisp.
+More information about SBCL is available at <http://www.sbcl.org/>.
+
+SBCL is free software, provided as is, with absolutely no warranty.
+It is mostly in the public domain; some portions are provided under
+BSD-style licenses.  See the CREDITS and COPYING files in the
+distribution for more information.
+; instantiating output/sbcl-core.wasm (41284447 bytes)
+; instantiating 7125 saved modules
+;;;; SIGBUS handler not installed
+
+3 

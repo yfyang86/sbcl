@@ -35,8 +35,13 @@ __attribute__((export_name("number_stack_end"))) uint32_t number_stack_end(void)
 __attribute__((export_name("region_start"))) uint32_t region_start(void) {
     return (uint32_t)(uintptr_t)region;
 }
+/* the GC card table the store barrier writes: one card, mask 0
+ * (LISP_REGISTER_AREA_CARD_TABLE / _CARD_MASK in wasm-lispregs.h) */
+static uint8_t card_mark[16] __attribute__((aligned(16)));
 __attribute__((export_name("reset"))) void reset(void) {
     memset(thread_area, 0, sizeof thread_area);
+    thread_area[460 / 4] = (uint32_t)(uintptr_t)card_mark;
+    thread_area[464 / 4] = 0;
     region_free = (uint32_t)(uintptr_t)region;
 }
 

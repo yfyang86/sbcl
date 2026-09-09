@@ -18,6 +18,8 @@
 #include "interr.h"
 #include "globals.h"
 #include "thread.h"
+#include "arch.h"
+#include "genesis/static-symbols.h"
 
 sigset_t deferrable_sigset, blockable_sigset, gc_sigset, thread_start_sigset;
 
@@ -89,7 +91,8 @@ void interrupt_internal_error(os_context_t *context, bool continuable)
     lose("interrupt_internal_error: no context on WebAssembly");
 }
 bool handle_guard_page_triggered(os_context_t *context, os_vm_address_t addr) { return 0; }
-void do_pending_interrupt(void) {}
+extern void wasm_pending_interrupt(void);
+void do_pending_interrupt(void) { wasm_pending_interrupt(); }
 void sig_stop_for_gc_handler(int signal, siginfo_t *info, os_context_t *context) {}
 void ll_install_handler(int signal, interrupt_handler_t handler) {}
 void handle_trap(os_context_t *context, int trap)
@@ -106,3 +109,12 @@ void lower_thread_alien_stack_guard_page(struct thread *th) {}
 void reset_thread_alien_stack_guard_page(struct thread *th) {}
 void lower_thread_binding_stack_guard_page(struct thread *th) {}
 void reset_thread_binding_stack_guard_page(struct thread *th) {}
+
+/* The linkage-table guard ENSURE-ALIEN-LINKAGE-INDEX gives an alien
+ * function the runtime does not define (interrupt.c's, for the targets
+ * without an undefined_alien_function trampoline): entered when such a
+ * function is called with a matching signature. */
+void undefined_alien_function(void)
+{
+    funcall0(StaticSymbolFunction(UNDEFINED_ALIEN_FUN_ERROR));
+}

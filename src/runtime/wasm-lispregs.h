@@ -51,4 +51,8 @@
 #define LISP_REGISTER_AREA_FLOAT_MODES 452
 /* set by the host on Ctrl-C, serviced by pending_interrupt (wasm-arch.c) */
 #define LISP_REGISTER_AREA_INTERRUPT_PENDING 456
+/* the GC card table's address and index mask, read by the store barrier
+ * compiled code emits (EMIT-GENGC-BARRIER, macros.lisp) */
+#define LISP_REGISTER_AREA_CARD_TABLE 460
+#define LISP_REGISTER_AREA_CARD_MASK 464
 #define LISP_REGISTER_AREA_SIZE     512

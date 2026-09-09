@@ -51,5 +51,21 @@ symbols=${WASM_CORE_SYMBOLS:-obj/xbuild/wasm-core.wasm.symbols}
 [ -f "$symbols" ] || { echo "no symbol list $symbols" >&2; exit 1; }
 tools-for-build/wasm-linkage-table.sh "$symbols" > src/runtime/wasm-linkage-table.c
 
-cd src/runtime
-exec make CC="$WASI_SDK/bin/clang" AR="$WASI_SDK/bin/llvm-ar" "$@" sbcl.wasm
+# The core's list covers the cold core only. Code loaded later (the warm
+# sources, user code) resolves foreign names at run time through the same
+# table, so after the first link the table is extended with every name the
+# Lisp sources (or tools-for-build/wasm-linkage-extra.txt) mention that the
+# runtime defines or links (llvm-nm over its objects), and the runtime is
+# linked again. See tools-for-build/wasm-linkage-extra.sh.
+make_runtime() {
+    (cd src/runtime && make CC="$WASI_SDK/bin/clang" AR="$WASI_SDK/bin/llvm-ar" "$@" sbcl.wasm)
+}
+make_runtime "$@"
+extra=$(tools-for-build/wasm-linkage-extra.sh "$symbols")
+if [ -n "$extra" ]; then
+    n=$(echo "$extra" | wc -l | tr -d ' ')
+    echo "linkage table: $n more symbols for code loaded at run time"
+    { cat "$symbols"; echo "$extra"; } > obj/xbuild/wasm-linkage.symbols
+    tools-for-build/wasm-linkage-table.sh obj/xbuild/wasm-linkage.symbols > src/runtime/wasm-linkage-table.c
+    make_runtime "$@"
+fi

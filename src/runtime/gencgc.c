@@ -3088,6 +3088,22 @@ static void semiconservative_pin_stack(struct thread* th,
 static int boxed_registers[] = BOXED_REGISTERS;
 
 static void pin_call_chain_and_boxed_registers(struct thread* th) {
+#ifdef LISP_FEATURE_WASM
+    /* The Lisp registers are the words of the register area (there is no
+     * interrupt context for the running code: the GC is entered from a
+     * safe point with every register flushed there). Their referents are
+     * pinned like those of a context's boxed registers. */
+    extern uint32_t lisp_register_area[];
+    for (unsigned i = 0; i < (sizeof(boxed_registers) / sizeof(int)); i++) {
+        lispobj word = lisp_register_area[boxed_registers[i]];
+        if (is_lisp_pointer(word)) {
+#ifdef LISP_FEATURE_SOFT_CARD_MARKS
+            impart_mark_stickiness(word);
+#endif
+            pin_exact_root(word);
+        }
+    }
+#endif
 #ifdef reg_RA
     lispobj *object_ptr;
     // We need more information to reliably backtrace through a call
@@ -4044,6 +4060,14 @@ collect_garbage(generation_index_t last_gen)
         protect_control_stack_return_guard_page(1, th);
 
     gc_active_p = 0;
+#ifdef LISP_FEATURE_WASM
+    /* SBCL_WASM_TRACE_AFTER_GC=1: trace every function entry from the end of
+     * the first collection on (the trace from startup is too long) */
+    if (getenv("SBCL_WASM_TRACE_AFTER_GC")) {
+        extern uint32_t lisp_register_area[];
+        *(uint32_t*)((char*)lisp_register_area + 456) |= 2;
+    }
+#endif
 
 #ifdef COLLECT_GC_STATS
     struct timespec t_gc_done;
@@ -4628,6 +4652,12 @@ verify_pointer(lispobj thing, lispobj *where, struct verify_state *state)
         FAIL_IF(!card_markedp(state->object_addr), "younger obj from WP'd code header page");
         // 2. the object header must be marked as written
         if (!header_rememberedp(state->object_header))
+#ifdef LISP_FEATURE_WASM
+            /* report rather than die: this verifier is a debugging aid here */
+            fprintf(stderr, "code @ %p (g%d) not remembered. word @ %p -> %"OBJ_FMTX" (g%d)\n",
+                    state->object_addr, state->object_gen, where, thing, to_gen);
+        if (0)
+#endif
             lose("code @ %p (g%d). word @ %p -> %"OBJ_FMTX" (g%d)",
                  state->object_addr, state->object_gen, where, thing, to_gen);
     } else if ((state->flags & VERIFYING_GENERATIONAL) && to_gen < state->object_gen

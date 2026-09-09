@@ -1,0 +1,3 @@
+;;;; SIGBUS handler not installed
+
+usage 49864808 ok=T

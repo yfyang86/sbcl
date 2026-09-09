@@ -1278,6 +1278,10 @@ We could try a few things to mitigate this:
 
 ;;; Make sure that every KEY-INFO is in the hashset.
 ;;; We don't dump any from genesis, which is a good thing.
+;;; The check assumes that MAKE-KEY-INFO's candidate is stack-allocated;
+;;; the WebAssembly backend allocates it on the heap, where it lingers
+;;; as garbage until the next collection.
+#-wasm
 (let ((cache (sb-impl::hashset-storage sb-kernel::*key-info-hashset*))
       (list
        (list-allocated-objects :all :type instance-widetag

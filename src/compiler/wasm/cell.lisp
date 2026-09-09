@@ -22,13 +22,20 @@
   (:generator 1
     (loadw result object offset lowtag)))
 
+;;; BARRIER is computed by the IR2 optimizer from the :GC-BARRIER spec
+;;; (object argument 0, value argument 1, the allocator name is info 0):
+;;; NIL when the value cannot be a heap pointer or the object was just
+;;; allocated in this block.
 (define-vop (set-slot)
   (:args (object :scs (descriptor-reg))
          (value :scs (descriptor-reg any-reg)))
-  (:info name offset lowtag)
+  (:info name offset lowtag barrier)
   (:ignore name)
   (:results)
+  (:gc-barrier 0 1 0)
   (:generator 1
+    (when barrier
+      (emit-gengc-barrier object))
     (storew value object offset lowtag)))
 
 ;;; One thread: a compare-and-swap is a load, a compare and a
@@ -55,6 +62,7 @@
   (:ignore name)
   (:results (result :scs (descriptor-reg) :from :load))
   (:generator 5
+    (emit-gengc-barrier object)
     (emit-compare-and-swap-word result object (- (* offset n-word-bytes) lowtag) old new)))
 
 ;;;; Symbol hacking VOPs:
@@ -68,6 +76,7 @@
   (:policy :fast-safe)
   (:vop-var vop)
   (:generator 15
+    (emit-gengc-barrier symbol)
     (emit-compare-and-swap-word result symbol
                                 (- (* symbol-value-slot n-word-bytes) other-pointer-lowtag)
                                 old new)
@@ -193,6 +202,7 @@
   (:generator 3
     (let ((simple-fun (gen-label))
           (store (gen-label)))
+      (emit-gengc-barrier fdefn)
       (load-reg function)
       (emit-load-sized 1 nil (- fun-pointer-lowtag))
       (inst i32.const simple-fun-widetag)
@@ -237,6 +247,8 @@
     (store-binding-stack-pointer bsp-temp)
     (storew temp bsp-temp (- binding-value-slot binding-size))
     (storew symbol bsp-temp (- binding-symbol-slot binding-size))
+    ;; no thread-local storage here: the value goes into the symbol
+    (emit-gengc-barrier symbol)
     (storew value symbol symbol-value-slot other-pointer-lowtag)))
 
 (define-vop (unbind)
@@ -246,6 +258,8 @@
     (load-binding-stack-pointer bsp-temp)
     (loadw symbol bsp-temp (- binding-symbol-slot binding-size))
     (loadw value bsp-temp (- binding-value-slot binding-size))
+    ;; the restored value may be young and the symbol old
+    (emit-gengc-barrier symbol)
     (storew value symbol symbol-value-slot other-pointer-lowtag)
     (load-reg bsp-temp)
     (emit-store-word (ash (- binding-symbol-slot binding-size) word-shift)
@@ -278,6 +292,7 @@
       (inst i32.eqz)
       (inst jump-if skip)
       (loadw value bsp (- binding-value-slot binding-size))
+      (emit-gengc-barrier symbol)
       (storew value symbol symbol-value-slot other-pointer-lowtag)
       (load-reg bsp)
       (emit-store-word (ash (- binding-symbol-slot binding-size) word-shift)
@@ -358,7 +373,8 @@
 (define-full-setter instance-index-set * instance-slots-offset
   instance-pointer-lowtag (descriptor-reg any-reg) * %instance-set)
 
-(defmacro define-full-casser (name type offset lowtag scs eltype &optional translate)
+(defmacro define-full-casser (name type offset lowtag scs eltype &optional translate
+                              &aux (barrierp (member 'descriptor-reg scs)))
   `(define-vop (,name)
      ,@(when translate `((:translate ,translate)))
      (:policy :fast-safe)
@@ -370,6 +386,14 @@
      (:results (result :scs ,scs :from :load))
      (:result-types ,eltype)
      (:generator 5
+       ,@(when barrierp
+           (if (eql (eval lowtag) other-pointer-lowtag)
+               `((emit-gengc-barrier object t
+                                     (lambda ()
+                                       (emit-indexed-address object index n-word-bytes)
+                                       (inst i32.const (- (* ,offset n-word-bytes) ,lowtag))
+                                       (inst i32.add))))
+               '((emit-gengc-barrier object))))
        (let ((done (gen-label))
              (displacement (- (* ,offset n-word-bytes) ,lowtag)))
          (store-reg result
