@@ -477,6 +477,14 @@ int32_t sbcl_host_instantiate(const void *bytes, int32_t length,
 int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
 {
     wasm_check_stack("before instantiate");
+    /* SBCL_WASM_DUMP_INSTALLED=1: write every module installed at run
+     * time to obj/wasm-build/installed-BASE.wasm (a debugging aid) */
+    if (getenv("SBCL_WASM_DUMP_INSTALLED")) {
+        char name[64];
+        snprintf(name, sizeof name, "obj/wasm-build/installed-%u.wasm", (unsigned)table_base);
+        FILE *out = fopen(name, "wb");
+        if (out) { fwrite(bytes, 1, length, out); fclose(out); }
+    }
     int ok = sbcl_host_instantiate(bytes, length, lisp_register_area, table_base);
     wasm_check_stack("after instantiate");
     return ok;
