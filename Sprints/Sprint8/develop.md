@@ -195,3 +195,27 @@ linkage table (generated from the cold core's symbol list) is extended
 after the first link with every name the Lisp sources mention that the
 runtime defines or imports (`tools-for-build/wasm-linkage-extra.sh`,
 `llvm-nm` over the runtime's objects) and the runtime is linked again.
+
+The first warm compile (`room.lisp`) trapped inside `gethash` with CFP 0,
+OCFP 0x100 and a hash value in NARGS: the registers a `call_into_lisp`
+leaves behind.
+
+8. **A collection at a safe point clobbered the interrupted function's
+   registers.** `maybe_gc` calls `sub-gc` through `call_into_lisp`,
+   which writes NARGS, CFP, OCFP, LEXENV, CODE and the argument
+   registers of the same register area and restores only CSP; the
+   interrupted XEP went on with `sub-gc`'s registers. (The allocation
+   stress test had passed by luck: nothing it interrupted needed its
+   registers afterwards.) `pending_interrupt` now copies the register
+   area into an interrupt context around the collection, as
+   `wasm_internal_error` does for errors: the collector pins what the
+   context's boxed registers reference, so the copy stays valid, and
+   it is written back when `maybe_gc` returns.
+9. **The fasl loader applied fixup records.** `warm.lisp` loads each
+   file right after compiling it, and `room.fasl` carried fixup records
+   (the machine-code kinds `dump-fixups` writes for every target), which
+   `load-code` handed to `apply-fasl-fixups` and thus to the
+   `fixup-code-object` stub. On this target a code object's references
+   are the patches of its Wasm blob, resolved by `fop-wasm-code` through
+   `wasm-install-code`; the loader now skips the records, as
+   `make-core-component` already did for in-memory compiles.

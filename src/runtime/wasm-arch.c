@@ -346,7 +346,23 @@ void wasm_pending_interrupt(void)
                 if (getenv("SBCL_WASM_VERBOSE"))
                     fprintf(stderr, "sbcl-wasm: gc at a safe point (%zu bytes allocated)\n",
                             (size_t)bytes_allocated);
+                /* maybe_gc calls SUB-GC through call_into_lisp, which uses
+                 * the same register area as the interrupted function: keep a
+                 * copy as an interrupt context (the collector pins what its
+                 * boxed registers reference, so the copy stays valid) and
+                 * put it back afterwards. */
+                os_context_t context;
+                memcpy(context.regs, lisp_register_area, sizeof context.regs);
+                context.pc = 0;
+                int index = fixnum_value(read_TLS(FREE_INTERRUPT_CONTEXT_INDEX, th));
+                if (index >= MAX_INTERRUPTS)
+                    lose("maximum interrupt nesting depth (%d) exceeded", MAX_INTERRUPTS);
+                bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
+                nth_interrupt_context(index, th) = &context;
                 maybe_gc(0);
+                nth_interrupt_context(index, th) = NULL;
+                unbind(th);
+                memcpy(lisp_register_area, context.regs, sizeof context.regs);
             }
         }
     }

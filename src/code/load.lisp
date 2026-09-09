@@ -1120,7 +1120,11 @@
         (with-writable-code-instructions
             (code total-nwords debug-info n-simple-funs)
           :copy (read-n-bytes (fasl-input-stream) (code-instructions code) 0 n-code-bytes)
-          :fixup (sb-c::apply-fasl-fixups code stack (+ ptr (1+ n-constants)) n-fixup-elts real-code))
+          ;; wasm: the code's references are the patches of its Wasm blob,
+          ;; resolved by FOP-WASM-CODE (WASM-INSTALL-CODE); the fasl's fixup
+          ;; records are not applied, as in MAKE-CORE-COMPONENT
+          :fixup #+wasm (progn stack real-code nil)
+                 #-wasm (sb-c::apply-fasl-fixups code stack (+ ptr (1+ n-constants)) n-fixup-elts real-code))
         ;; Don't need the code pinned from here on
         (setf (sb-c::debug-info-source (%code-debug-info code))
               (%fasl-input-partial-source-info (fasl-input)))
