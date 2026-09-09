@@ -316,7 +316,9 @@ fn main() -> Result<()> {
             if let (Some(area), Some(mem)) = (ctx.data().register_area, ctx.data().memory) {
                 let off = (area + REGISTER_AREA_INTERRUPT_PENDING) as usize;
                 if let Some(word) = mem.data_mut(&mut ctx).get_mut(off..off + 4) {
-                    word.copy_from_slice(&1u32.to_le_bytes());
+                    // bit 0 of the word; the runtime uses the other bits
+                    let v = u32::from_le_bytes([word[0], word[1], word[2], word[3]]) | 1;
+                    word.copy_from_slice(&v.to_le_bytes());
                 }
             }
             eprintln!("sbcl-wasm: interrupt requested (press Ctrl-C again to terminate)");

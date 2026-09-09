@@ -478,7 +478,50 @@ pushed by VALUE-FORMS at address+DISPLACEMENT."
        (:generator 4
          (loadw value object (+ ,offset index) ,lowtag)))))
 
-(defmacro define-full-setter (name type offset lowtag scs eltype &optional translate)
+;;;; The GC store barrier (soft card marks)
+;;;;
+;;;; A store of a pointer into a heap object marks the object's card so
+;;;; that the next collection scans the object for pointers into younger
+;;;; generations: the byte at gc_card_mark[(object >> card-shift) &
+;;;; gc_card_table_mask] is set to CARD-MARKED (0). The runtime keeps the
+;;;; table's address and the mask in two words of the register area
+;;;; (+THREAD-CARD-TABLE-OFFSET+, +THREAD-CARD-MASK-OFFSET+; the arm64
+;;;; backend keeps the address in a register), set by call_into_lisp
+;;;; (wasm-arch.c) and by the level-1 mini-runtime.
+;;;; REQUIRE-GENGC-BARRIER-P elides the mark when the value cannot be a
+;;;; heap pointer (a fixnum, character, boolean, a stack-allocated
+;;;; object) or the object itself is stack-allocated. VALUE-TN-REF is T
+;;;; to always mark.
+
+(defconstant +thread-card-table-offset+ 460)
+(defconstant +thread-card-mask-offset+ 464)
+
+;;; The card is that of the object's header, or, for the elements of a
+;;; vector or code object, of the element itself: those objects can span
+;;; cards, and the collector scans a marked card's words, not the whole
+;;; object (instances are scanned whole from their header's card).
+;;; CELL-ADDRESS, when given, is a function that pushes the address of
+;;; the cell being written.
+(defun emit-gengc-barrier (object &optional (value-tn-ref t) cell-address)
+  (when (or (eq value-tn-ref t)
+            (require-gengc-barrier-p object value-tn-ref))
+    (assemble ()
+      (inst global.get +thread-global+)
+      (inst i32.load +thread-card-table-offset+)
+      (if cell-address
+          (funcall cell-address)
+          (load-reg object))
+      (inst i32.const gencgc-card-shift)
+      (inst i32.shr_u)
+      (inst global.get +thread-global+)
+      (inst i32.load +thread-card-mask-offset+)
+      (inst i32.and)
+      (inst i32.add)
+      (inst i32.const card-marked)
+      (inst i32.store8 0))))
+
+(defmacro define-full-setter (name type offset lowtag scs eltype &optional translate
+                              &aux (barrierp (member 'descriptor-reg scs)))
   `(progn
      (define-vop (,name)
        ,@(when translate `((:translate ,translate)))
@@ -487,7 +530,18 @@ pushed by VALUE-FORMS at address+DISPLACEMENT."
               (index :scs (any-reg))
               (value :scs ,scs))
        (:arg-types ,type tagged-num ,eltype)
+       ,@(when barrierp '((:gc-barrier 0 2) (:info barrier)))
        (:generator 3
+         ,@(when barrierp
+             (if (eql (eval lowtag) other-pointer-lowtag)
+                 ;; a vector element: mark the element's card
+                 `((when barrier
+                     (emit-gengc-barrier object t
+                                         (lambda ()
+                                           (emit-indexed-address object index n-word-bytes)
+                                           (inst i32.const (- (ash ,offset word-shift) ,lowtag))
+                                           (inst i32.add)))))
+                 '((when barrier (emit-gengc-barrier object)))))
          (emit-indexed-address object index n-word-bytes)
          (emit-store-word (- (ash ,offset word-shift) ,lowtag)
            (load-reg value))))
@@ -496,11 +550,21 @@ pushed by VALUE-FORMS at address+DISPLACEMENT."
        (:policy :fast-safe)
        (:args (object :scs (descriptor-reg))
               (value :scs ,scs))
-       (:info index)
+       (:info index ,@(when barrierp '(barrier)))
        (:arg-types ,type
          (:constant (load/store-index #.n-word-bytes ,(eval lowtag) ,(eval offset)))
          ,eltype)
+       ,@(when barrierp '((:gc-barrier 0 1)))
        (:generator 1
+         ,@(when barrierp
+             (if (eql (eval lowtag) other-pointer-lowtag)
+                 `((when barrier
+                     (emit-gengc-barrier object t
+                                         (lambda ()
+                                           (load-reg object)
+                                           (inst i32.const (- (ash (+ ,offset index) word-shift) ,lowtag))
+                                           (inst i32.add)))))
+                 '((when barrier (emit-gengc-barrier object)))))
          (storew value object (+ ,offset index) ,lowtag)))))
 
 (defmacro define-partial-reffer (name type size signed offset lowtag scs eltype &optional translate)

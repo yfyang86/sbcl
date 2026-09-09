@@ -284,9 +284,6 @@
   (:generator 4
     (loadw value object index other-pointer-lowtag)))
 
-;;; Card marking for the store into a code header arrives with the GC
-;;; (doc/wasm-port/04-sprints.md, Sprint 5); until then this is a plain
-;;; store.
 (define-vop (code-header-set)
   (:translate code-header-set)
   (:policy :fast-safe)
@@ -295,6 +292,22 @@
          (value :scs (any-reg descriptor-reg)))
   (:arg-types * tagged-num *)
   (:generator 10
+    (emit-gengc-barrier object t
+                        (lambda ()
+                          (emit-indexed-address object index n-word-bytes)
+                          (inst i32.const (- other-pointer-lowtag))
+                          (inst i32.add)))
+    ;; set the "written" flag of the code header (OBJ_WRITTEN_FLAG, code.h):
+    ;; the collector scans the boxed words of an old code object only when
+    ;; the flag says they were written since the object was created
+    (load-reg object)
+    (inst i32.const (- 3 other-pointer-lowtag))
+    (inst i32.add)
+    (load-reg object)
+    (emit-load-sized 1 nil (- 3 other-pointer-lowtag))
+    (inst i32.const #x40)
+    (inst i32.or)
+    (inst i32.store8 0)
     (emit-indexed-address object index n-word-bytes)
     (emit-store-word (- other-pointer-lowtag)
       (load-reg value))))

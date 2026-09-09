@@ -16,6 +16,9 @@
 #              the tree, genesis): obj/xbuild/wasm.core, wasm-core.wasm,
 #              wasm.map, genesis headers. About 20 minutes.
 #   runtime    build src/runtime/sbcl.wasm with wasi-sdk (needs lisp)
+#   warm       the warm load: the cold core compiles src/cold/warm.lisp,
+#              a fresh cold core loads it and saves output/sbcl.core
+#              (tools-for-build/wasm-warm.sh)
 #   smoke      sbcl.wasm --version and --help under the host
 #   test       level-0 and level-1 test suites (level-1 rebuilds the
 #              after-xc core, about 10 minutes)
@@ -218,6 +221,11 @@ step_runtime() {
     wasm-tools validate --features all src/runtime/sbcl.wasm && echo "sbcl.wasm validates"
 }
 
+step_warm() {
+    say "warm load (about an hour; logs in $log_dir/warm-*.log)"
+    tools-for-build/wasm-warm.sh || die "warm load failed"
+}
+
 step_smoke() {
     say "smoke test"
     [ -x wasm/target/release/sbcl-wasm ] || step_host
@@ -261,6 +269,7 @@ for step in $steps; do
         grovel) step_grovel ;;
         lisp) step_lisp ;;
         runtime) step_runtime ;;
+        warm) step_warm ;;
         smoke) step_smoke ;;
         test) step_test ;;
         run) step_run ;;

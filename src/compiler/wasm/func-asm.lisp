@@ -331,6 +331,9 @@ function so that a loader can renumber it."
     (load-target)
     (buffer-byte buffer #x28) (buffer-byte buffer 2)
     (buffer-uleb128 buffer (* sb-vm::unwind-block-entry-pc-slot sb-vm::n-word-bytes))
+    ;; the slot holds the entry index as a fixnum (STORE-ENTRY-INDEX, nlx.lisp)
+    (buffer-byte buffer #x41) (buffer-sleb128 buffer sb-vm:n-fixnum-tag-bits) ; i32.const
+    (buffer-byte buffer #x76)                                             ; i32.shr_u
     (buffer-byte buffer #x21) (buffer-uleb128 buffer pc-local)            ; local.set $pc
     (buffer-byte buffer #x0C) (buffer-uleb128 buffer (depth-of :loop))))  ; br $L
 

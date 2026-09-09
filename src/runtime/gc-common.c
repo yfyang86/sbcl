@@ -83,11 +83,11 @@ os_vm_size_t bytes_consed_between_gcs = 12*1024*1024;
 
 #ifdef LISP_FEATURE_PPC64
 // unevenly spaced pointer lowtags
-static void (*scav_ptr[16])(lispobj *where, lispobj object); /* forward decl */
+static sword_t (*scav_ptr[16])(lispobj *where, lispobj object); /* forward decl */
 #define PTR_SCAVTAB_INDEX(ptr) (ptr & 15)
 #else
 // evenly spaced pointer lowtags
-static void (*scav_ptr[4])(lispobj *where, lispobj object); /* forward decl */
+static sword_t (*scav_ptr[4])(lispobj *where, lispobj object); /* forward decl */
 #define PTR_SCAVTAB_INDEX(ptr) ((uint32_t)ptr>>(N_LOWTAG_BITS-2))&3
 #endif
 
@@ -1022,7 +1022,11 @@ static lispobj trans_bignum(lispobj object)
 
 // Return the lisp object that fdefn jumps to.
 lispobj decode_fdefn_rawfun(struct fdefn* fdefn) {
-#ifdef LISP_FEATURE_LINKAGE_SPACE
+#ifdef LISP_FEATURE_WASM
+    /* raw_addr is the callee's table index, not an address: the collector
+     * has nothing to adjust (the fun slot is scavenged like any pointer) */
+    return 0;
+#elif defined LISP_FEATURE_LINKAGE_SPACE
     extern lispobj entrypoint_taggedptr(uword_t);
     int index = fdefn_linkage_index(fdefn);
     return index ? entrypoint_taggedptr(linkage_space[index]) : 0;

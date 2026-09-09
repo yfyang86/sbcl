@@ -89,7 +89,8 @@ void interrupt_internal_error(os_context_t *context, bool continuable)
     lose("interrupt_internal_error: no context on WebAssembly");
 }
 bool handle_guard_page_triggered(os_context_t *context, os_vm_address_t addr) { return 0; }
-void do_pending_interrupt(void) {}
+extern void wasm_pending_interrupt(void);
+void do_pending_interrupt(void) { wasm_pending_interrupt(); }
 void sig_stop_for_gc_handler(int signal, siginfo_t *info, os_context_t *context) {}
 void ll_install_handler(int signal, interrupt_handler_t handler) {}
 void handle_trap(os_context_t *context, int trap)

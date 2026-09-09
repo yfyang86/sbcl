@@ -190,6 +190,8 @@ Environment variables read by the host and the runtime:
 | `SBCL_WASM_TRACE_CALLS=1` | print every `call_into_lisp` (function, table index, argument count) |
 | `SBCL_WASM_TRACE_ENTRIES=1` | print every Lisp function entry (the callee's name or table index, NARGS, CFP, CSP, OCFP, A0, A1); decode with `tools-for-build/wasm-coreindex.py --annotate` |
 | `SBCL_WASM_TRACE_ALLOC=1` | print the frame registers at every allocation |
+| `SBCL_WASM_VERIFY_GC=1` | run the collector's heap verifier before and after every collection; it reports each pointer to a stale object (`Ptr ... sees ...`) and code objects written without the "written" flag |
+| `SBCL_WASM_TRACE_AFTER_GC=1` | switch the entry trace on at the end of the first collection (the trace from startup is too long to be useful) |
 | `SBCL_WASM_TRACE_ERRORS=1` | print every internal error the runtime hands to Lisp (trap kind, error code, argument descriptors, registers, the fdefn in LEXENV) |
 | `SBCL_WASM_HOST=<path>` | the host binary `wasm_run.sh` uses |
 | `WASMTIME_BACKTRACE_DETAILS=1` | Wasmtime's own richer backtraces |

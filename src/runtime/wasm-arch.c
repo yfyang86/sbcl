@@ -43,6 +43,9 @@
 #include "genesis/static-symbols.h"
 #include "genesis/sap.h"
 #include "code.h"
+#include "gc.h"
+#include "pseudo-atomic.h"
+extern os_vm_size_t bytes_allocated;
 
 /* The register area of the (only) Lisp thread. Word slots 0..31 are the
  * registers, then the float registers, the internal-error arguments,
@@ -83,8 +86,8 @@ unsigned char fun_end_breakpoint_guts[4], fun_end_breakpoint_trap[4], fun_end_br
  * sections: there are no signals, and the runtime entry points are
  * called with every register flushed. */
 bool arch_pseudo_atomic_atomic(struct thread *thread) { return 1; }
-void arch_set_pseudo_atomic_interrupted(struct thread *thread) {}
-void arch_clear_pseudo_atomic_interrupted(struct thread *thread) {}
+void arch_set_pseudo_atomic_interrupted(struct thread *thread) { set_pseudo_atomic_interrupted(thread); }
+void arch_clear_pseudo_atomic_interrupted(struct thread *thread) { clear_pseudo_atomic_interrupted(thread); }
 
 unsigned int arch_install_breakpoint(void *pc)
 {
@@ -132,10 +135,16 @@ static uint32_t function_entry_index(lispobj fun, lispobj *lexenv)
     }
 }
 
+extern unsigned char *gc_card_mark;
+extern sword_t gc_card_table_mask;
+
 lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
 {
     struct thread *th = get_sb_vm_thread();
     uint32_t *r = lisp_register_area;
+    /* the store barrier's view of the card table (constant after startup) */
+    *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_TABLE) = (uint32_t)(uintptr_t)gc_card_mark;
+    *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_MASK) = (uint32_t)gc_card_table_mask;
     lispobj lexenv;
     uint32_t index = function_entry_index(fun, &lexenv);
     /* A fresh frame at the current top of the control stack: the first
@@ -304,7 +313,8 @@ __attribute__((export_name("pending_interrupt")))
 void wasm_pending_interrupt(void)
 {
     uint32_t *word = interrupt_pending_word();
-    if (*word == 2) {
+    struct thread *th = get_sb_vm_thread();
+    if (*word & WASM_PENDING_TRACE) {
         lispobj lexenv = lisp_register_area[reg_LEXENV];
         fprintf(stderr, "; enter");
         if (lowtag_of(lexenv) == OTHER_POINTER_LOWTAG
@@ -322,10 +332,26 @@ void wasm_pending_interrupt(void)
                 lisp_register_area[reg_CFP], lisp_register_area[reg_CSP],
                 lisp_register_area[reg_OCFP], lisp_register_area[reg_A0],
                 lisp_register_area[reg_A1]);
-        return;
     }
-    if (*word == 1) {
-        *word = 0;
+    /* A GC is pending (trigger_gc, gengc.inc, through
+     * set_pseudo_atomic_interrupted): a safe point is where it runs, as
+     * the end of a pseudo-atomic section is elsewhere; every live Lisp
+     * value is in the register area or on the control stack here. While
+     * *GC-INHIBIT* is set the bit stays, so that the end of the
+     * WITHOUT-GCING (which calls receive-pending-interrupt) runs it. */
+    if (*word & WASM_PENDING_GC) {
+        if (read_TLS(GC_INHIBIT, th) == NIL) {
+            *word &= ~(uint32_t)WASM_PENDING_GC;
+            if (read_TLS(GC_PENDING, th) == LISP_T) {
+                if (getenv("SBCL_WASM_VERBOSE"))
+                    fprintf(stderr, "sbcl-wasm: gc at a safe point (%zu bytes allocated)\n",
+                            (size_t)bytes_allocated);
+                maybe_gc(0);
+            }
+        }
+    }
+    if (*word & WASM_PENDING_INTERRUPT) {
+        *word &= ~(uint32_t)WASM_PENDING_INTERRUPT;
         fprintf(stderr, "; interrupt request seen at a safe point (delivery to Lisp is not implemented yet)\n");
     }
 }
@@ -403,8 +429,40 @@ void wasm_load_core_module(const char *core_path)
         fprintf(stderr, "; instantiating %s (%ld bytes)\n", path, size);
     if (!sbcl_host_instantiate(bytes, (int32_t)size, lisp_register_area, WASM_CORE_TABLE_BASE))
         lose("the host could not instantiate the core module %s", path);
+    /* The modules code loaded at run time made (WASM-INSTALL-CODE): a saved
+     * core keeps them in *WASM-LOADED-MODULES* as (table-base . bytes),
+     * newest first; instantiate them again, oldest first, at their table
+     * ranges. In a cold core the symbol is not yet bound. */
+    {
+        lispobj list = SymbolValue(WASM_LOADED_MODULES, 0);
+        if (lowtag_of(list) == LIST_POINTER_LOWTAG && list != NIL) {
+            int n = 0, i;
+            lispobj l;
+            for (l = list; l != NIL; l = CONS(l)->cdr) n++;
+            lispobj *entries = checked_malloc(n * sizeof(lispobj));
+            for (i = n - 1, l = list; i >= 0; i--, l = CONS(l)->cdr) entries[i] = CONS(l)->car;
+            if (!lisp_startup_options.noinform)
+                fprintf(stderr, "; instantiating %d saved modules\n", n);
+            for (i = 0; i < n; i++) {
+                struct cons *entry = CONS(entries[i]);
+                struct vector *v = VECTOR(entry->cdr);
+                if (!sbcl_host_instantiate((char*)v->data, (int32_t)vector_len(v), lisp_register_area,
+                                           (uint32_t)fixnum_value(entry->car)))
+                    lose("the host could not instantiate saved module %d", i);
+            }
+            free(entries);
+        }
+    }
     if (getenv("SBCL_WASM_TRACE_ENTRIES"))
-        *interrupt_pending_word() = 2;
+        *interrupt_pending_word() |= WASM_PENDING_TRACE;
+    /* SBCL_WASM_VERIFY_GC=1: the collector's heap verifier runs before and
+     * after every collection and reports each pointer to a stale object */
+    if (getenv("SBCL_WASM_VERIFY_GC")) {
+        extern generation_index_t verify_gens;
+        extern int pre_verify_gen_0;
+        verify_gens = 0;
+        pre_verify_gen_0 = 1;
+    }
     free(bytes);
     free(path);
 }

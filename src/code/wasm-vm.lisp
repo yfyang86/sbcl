@@ -133,6 +133,11 @@
 (define-alien-routine ("wasm_instantiate_module" %wasm-instantiate-module) int
   (bytes system-area-pointer) (length unsigned-int) (table-base unsigned-int))
 
+(defvar *wasm-loaded-modules* nil
+  "The modules instantiated at run time, as (table-base . bytes), newest
+first. A saved core keeps them; the runtime instantiates them again, in
+order, when the core starts (wasm_load_core_module).")
+
 (defun wasm-install-code (code octets)
   "Build a module from OCTETS, the compiler's blob for the functions of
 the code object CODE, instantiate it, and store each entry's table index
@@ -198,7 +203,9 @@ in its simple-fun's self slot."
                                '(simple-array (unsigned-byte 8) (*)))))
             (with-pinned-objects (bytes)
               (when (zerop (%wasm-instantiate-module (vector-sap bytes) (length bytes) table-base))
-                (error "the host could not instantiate the module of ~S" code))))
+                (error "the host could not instantiate the module of ~S" code)))
+            ;; kept for SAVE-LISP-AND-DIE: a saved core instantiates them again
+            (push (cons table-base bytes) *wasm-loaded-modules*))
           ;; the simple-funs' self slots: table indices. ENTRIES is in
           ;; IR2-COMPONENT-ENTRIES order, numbered from the last simple-fun
           ;; of the code object down (FOP-FUN-ENTRY, genesis).
