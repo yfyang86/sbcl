@@ -58,6 +58,18 @@ jobs:
     - name: ANSI tests
       run: ./build-wasm.sh ansi
 
+    # the browser host (Sprint 14): the Playwright suite against the
+    # dev server, in Chromium (Firefox runs in the sprint's UAT;
+    # PLAYWRIGHT_FIREFOX=1 adds it here when wanted)
+    - name: browser host tests
+      run: |
+        cd tests/wasm/web
+        npm install --no-fund --no-audit @playwright/test@1.59.1
+        npx playwright install chromium --with-deps
+        node ../../wasm/web/serve.mjs &
+        sleep 1
+        ./node_modules/.bin/playwright test -c playwright.config.mjs --project chromium
+
     - name: logs
       if: always()
       uses: actions/upload-artifact@v4

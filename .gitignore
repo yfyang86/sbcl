@@ -52,3 +52,7 @@
 /version.lisp-expr
 /src/runtime/sbcl.wasm
 /src/runtime/wasm-linkage-table.c
+node_modules/
+test-results/
+playwright-report/
+.DS_Store

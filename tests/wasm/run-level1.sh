@@ -11,7 +11,14 @@ CASES=${1:-$ROOT/tests/wasm/diff/cases.lisp}
 SBCL=${SBCL:-sbcl}
 DRIVER=$ROOT/wasm/target/release/sbcl-wasm-test
 rm -rf "$OUT"; mkdir -p "$OUT"
-[ -f "$ROOT/tests/wasm/minirt.wasm" ] || "$ROOT/tests/wasm/build-minirt.sh" > /dev/null
+# rebuild the mini-runtime when its source is newer (a stale minirt of
+# an older function type fails every case with a type mismatch, the
+# Sprint 14 record's false alarm)
+if [ ! -f "$ROOT/tests/wasm/minirt.wasm" ] \
+   || [ "$ROOT/tests/wasm/minirt.c" -nt "$ROOT/tests/wasm/minirt.wasm" ]; then
+    . "$ROOT/tools-for-build/wasm-env.sh"
+    WASI_SDK=${WASISDK_PATH:-${WASI_SDK:-}} "$ROOT/tests/wasm/build-minirt.sh" > /dev/null
+fi
 preload=""
 for f in ${LEVEL1_PRELOAD:-}; do preload="$preload --load $f"; done
 $SBCL --core "$XC" --noinform --disable-debugger --no-userinit --no-sysinit $preload \
