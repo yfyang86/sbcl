@@ -87,18 +87,27 @@ same run is the sprint's measurement against the host (section 5).
 
 ## 5. The final runs
 
-The s13g core (`obj/wasm-build/lisp-s13g.log`: the sprint's code, the
-runtime with the collector's root fix, the save fix) built and passed
-the smoke checks (`fib`, `catch`/`throw`, `with-timeout`, a full
-collection, run-time compilation) at 13:30 UTC; its regression and
-ANSI runs (`obj/wasm-build/regress-s13g.log`, `ansi-s13g.log`) were
-still running when the sprint was merged, on the user's request. The
-sprint's suite record is the s13f runs of sections 2 and 3 (the same
-compiled code; the two fixes since touch the collector's roots and the
-save, verified by hand in section 6), and the report of the s13f run
-is `doc/wasm-port/baselines/sprint-13.txt`. The s13g logs are to be
-read against it: the expectation is `save7.test.sh` passing and the
-rest unchanged.
+The s13g core (the sprint's code, the runtime with the collector's
+root fix; `obj/wasm-build/lisp-s13g.log`) passed the smoke checks and
+both suites (`regress-s13g.log`, `ansi-s13g.log`):
+
+- Regression suite: 403 files, 56 did not pass, 155 unexpected test
+  failures. Against the s13f report (`doc/wasm-port/baselines/sprint-13.txt`)
+  the differences are three: `format.pure.lisp / CACHED-TOKENIZED-STRING`
+  and `dynamic-extent.pure.lisp / (NO-CONSING WITH-PINNED-OBJECTS)` fail
+  (the consing measurements Sprint 12 already recorded as noise: the
+  bytes-consed count moves by an allocation region when a region
+  closes during the measured runs, and inline allocation makes every
+  count a count of closed regions), and `save7.test.sh` still fails —
+  the first save fix (section 2) tested for "no blob loaded since the
+  last merge", and every save adds two blobs of its own after the
+  merge, so the test never matched. The merge now happens only above
+  64 run-time modules (`+wasm-merge-threshold+`); a core saved from a
+  saved core has three. Verified on the s13h core (the same code with
+  that change): `save7.test.sh` passes, the smoke checks and the
+  four-kernel GC reproducer pass; the suites were not run again on it.
+- ANSI suite: 21,752 tests, 0 unexpected failures, 0 expected-but-passing
+  (`FORMAT.E.26` exempted as upstream exempts it).
 
 ## 6. Checked by hand
 
