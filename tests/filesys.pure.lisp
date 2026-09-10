@@ -260,7 +260,9 @@
     (assert (not (typep (sb-int:sbcl-homedir-pathname)
                         'logical-pathname)))))
 
-(with-test (:name (file-author stringp))
+(with-test (:name (file-author stringp)
+            ;; the WebAssembly port: no-passwd: WASI has no user database
+            :skipped-on :wasm)
   #-win32
   (assert (stringp (file-author (user-homedir-pathname))))
   #+win32
