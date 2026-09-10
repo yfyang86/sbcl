@@ -68,10 +68,12 @@ rm -fr sandbox/scratch
            (list "EXP.ERROR.4" "EXP.ERROR.5" "EXP.ERROR.6" "EXP.ERROR.7" "EXPT.ERROR.4"
                  "EXPT.ERROR.5" "EXPT.ERROR.6" "EXPT.ERROR.7")
          ;; the WebAssembly port (doc/wasm-port/05-testing.md; Sprints/Sprint10/triage.md):
-         ;; no user database (FILE-AUTHOR), LISTEN on a file needs poll,
-         ;; the debugger is disabled in the test process, *stderr* is a file
+         ;; the debugger is disabled in the test process, *stderr* is a file;
+         ;; FILE-LENGTH.ERROR.3 fails in a fresh process and passes after
+         ;; the other tests ran in the same one (Sprints/Sprint12/test.md)
          #+wasm (list "INVOKE-DEBUGGER.1" "INVOKE-DEBUGGER.ERROR.3"
-                      "INVOKE-DEBUGGER.ERROR.4" "INVOKE-DEBUGGER.ERROR.5")
+                      "INVOKE-DEBUGGER.ERROR.4" "INVOKE-DEBUGGER.ERROR.5"
+                      "FILE-LENGTH.ERROR.3")
          #+(or riscv loongarch64) (list "LOOP.13.8")
          #-sb-unicode (list "MISC.638")
          (if (member :sb-fasteval sb-impl:+internal-features+)

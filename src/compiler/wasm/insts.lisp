@@ -146,24 +146,42 @@
         ;; a type index for multi-value block signatures
         (t (emit-sleb128 segment type))))
 
-(macrolet ((define-simple (name opcode)
+;;; The nesting depth of the block, loop, if and try_table constructs
+;;; open at the current emission point. A VOP's constructs are balanced,
+;;; so the depth is zero between VOPs; an instruction that never falls
+;;; through (return, the tail calls, unreachable, throw) emitted at depth
+;;; zero ends the compiler's block, which NOTE-TERMINATOR records for the
+;;; function assembler (a :TERMINATOR control note, see below).
+(defvar *block-depth* 0)
+(defun note-terminator (segment)
+  (when (zerop *block-depth*)
+    (note-control segment :terminator nil nil)))
+
+(macrolet ((define-simple (name opcode &optional terminator)
              `(define-instruction ,name (segment)
-                (:emitter (emit-byte segment ,opcode)))))
-  (define-simple unreachable #x00)
+                (:emitter (emit-byte segment ,opcode)
+                          ,@(when terminator '((note-terminator segment)))))))
+  (define-simple unreachable #x00 t)
   (define-simple nop #x01)
   (define-simple else #x05)
-  (define-simple end #x0B)
-  (define-simple return #x0F)
-  (define-simple throw_ref #x0A)
+  (define-simple return #x0F t)
+  (define-simple throw_ref #x0A t)
   (define-simple drop #x1A)
   (define-simple select #x1B))
 
+(define-instruction end (segment)
+  (:emitter (emit-byte segment #x0B)
+            (setf *block-depth* (max 0 (1- *block-depth*)))))
+
 (define-instruction block (segment &optional type)
-  (:emitter (emit-byte segment #x02) (emit-block-type segment type)))
+  (:emitter (emit-byte segment #x02) (emit-block-type segment type)
+            (incf *block-depth*)))
 (define-instruction loop (segment &optional type)
-  (:emitter (emit-byte segment #x03) (emit-block-type segment type)))
+  (:emitter (emit-byte segment #x03) (emit-block-type segment type)
+            (incf *block-depth*)))
 (define-instruction if (segment &optional type)
-  (:emitter (emit-byte segment #x04) (emit-block-type segment type)))
+  (:emitter (emit-byte segment #x04) (emit-block-type segment type)
+            (incf *block-depth*)))
 
 ;;; br N, br_if N: N is a relative label depth
 (define-instruction br (segment depth)
@@ -200,12 +218,14 @@
    (emit-byte segment #x12)
    (etypecase func
      (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
-     (integer (emit-uleb128 segment func)))))
+     (integer (emit-uleb128 segment func)))
+   (note-terminator segment)))
 (define-instruction return_call_indirect (segment type-index &optional (table 0))
   (:emitter
    (emit-byte segment #x13)
    (emit-type-index segment type-index)
-   (emit-uleb128 segment table)))
+   (emit-uleb128 segment table)
+   (note-terminator segment)))
 
 ;;; try_table bt vec(catch): each catch clause is one of
 ;;;   (:catch tag label-depth) (:catch-ref tag label-depth)
@@ -222,9 +242,11 @@
        (:catch-ref (emit-byte segment #x01)
         (emit-uleb128 segment (second c)) (emit-uleb128 segment (third c)))
        (:catch-all (emit-byte segment #x02) (emit-uleb128 segment (second c)))
-       (:catch-all-ref (emit-byte segment #x03) (emit-uleb128 segment (second c)))))))
+       (:catch-all-ref (emit-byte segment #x03) (emit-uleb128 segment (second c)))))
+   (incf *block-depth*)))
 (define-instruction throw (segment tag)
-  (:emitter (emit-byte segment #x08) (emit-uleb128 segment tag)))
+  (:emitter (emit-byte segment #x08) (emit-uleb128 segment tag)
+            (note-terminator segment)))
 
 ;;;; Reference instructions
 
@@ -410,7 +432,7 @@
 (defstruct (control-note (:constructor make-control-note (kind posn labels data))
                          (:copier nil))
   ;; :jump :jump-if :jump-table :func-begin :func-end :call-label
-  ;; :tail-call-label :label-index :nlx-entry
+  ;; :tail-call-label :label-index :nlx-entry :terminator
   (kind nil :type symbol :read-only t)
   ;; byte position in the finalized segment of the note's placeholder byte
   (posn 0 :type index :read-only t)
@@ -458,7 +480,8 @@
 ;;; RESULTS are lists of value-type keywords; LOCALS is a list of
 ;;; (count . type) groups declared in addition to the dispatcher's own.
 (define-instruction func-begin (segment label &key params results locals)
-  (:emitter (note-control segment :func-begin label
+  (:emitter (setf *block-depth* 0)
+            (note-control segment :func-begin label
                           (list :params params :results results :locals locals))))
 
 (define-instruction func-end (segment)
@@ -478,6 +501,14 @@
 ;;; (the entry-pc of a catch or unwind block)
 (define-instruction label-index (segment label)
   (:emitter (note-control segment :label-index label nil)))
+
+;;; A :TERMINATOR note (NOTE-TERMINATOR above) follows an instruction
+;;; that never falls through, emitted outside any block of its VOP: the
+;;; compiler's block ends there, and the function assembler knows the
+;;; bytes after it in the same arm are dead. GENERATE-CODE (codegen.lisp)
+;;; ends a block the compiler knows does not fall through with one.
+(defun emit-block-terminator ()
+  (inst unreachable))
 
 ;;; marks LABEL as a non-local entry of the current function, which then
 ;;; gets an exception handler (see func-asm.lisp)
