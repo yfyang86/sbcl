@@ -530,7 +530,10 @@ broken symlink itself."
   "Return the author of the file specified by PATHSPEC. Signal an
 error of type FILE-ERROR if no such file exists, or if PATHSPEC
 is a wild pathname."
-  (query-file-system pathspec :author))
+  ;; the WebAssembly port: WASI has no user database; the author of an
+  ;; existing file is unknown (NIL)
+  #+wasm (progn (query-file-system pathspec :truename) nil)
+  #-wasm (query-file-system pathspec :author))
 
 (defun file-write-date (pathspec)
   "Return the write date of the file specified by PATHSPEC.

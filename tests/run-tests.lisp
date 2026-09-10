@@ -273,6 +273,7 @@
       ;; the WebAssembly port: every compilation installs a module
       ,(maybe "SB-VM" "*WASM-LOADED-MODULES*")
       ,(maybe "SB-VM" "*WASM-TABLE-NEXT*")
+      ,(maybe "SB-VM" "*WASM-CODE-BLOBS*")
       ,(maybe "SB-WASM-ASM" "*CORE-MODULE-INFO*")
       ;; RUN-PROGRAM's temporary-file counter on the WebAssembly port
       ,(maybe "SB-IMPL" "*WASM-PROCESS-COUNTER*")

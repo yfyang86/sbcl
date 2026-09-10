@@ -864,13 +864,24 @@ the routines' Wasm code blob for the fasl dumper."
                             +lisp-function-params+ +lisp-function-results+))
     m))
 
-(defun add-lisp-functions (module functions &key export)
+(defun patch-foreign-cells (function cells)
+  "Resolve the function's :FOREIGN patches whose names CELLS (an alist
+name -> address) knows: the linkage cells of the differential rig's
+mini-runtime (tests/wasm/minirt.c)."
+  (loop for (offset kind operand) in (wasm-function-patches function)
+        for cell = (and (eq kind :foreign) (assoc operand cells :test #'string=))
+        when cell
+        do (patch-fixed-leb128 (wasm-function-body function) offset (cdr cell) t)))
+
+(defun add-lisp-functions (module functions &key export foreign-cells)
   "Add FUNCTIONS (WASM-FUNCTION structs, in index order) to MODULE and
 install them in the shared table at table_base, in the same order. With
-EXPORT, also export each by name."
+EXPORT, also export each by name; FOREIGN-CELLS resolves :FOREIGN
+patches (PATCH-FOREIGN-CELLS)."
   (let ((indices (loop for function in functions
                        for name = (wasm-function-name function)
                        do (patch-type-indices module function)
+                          (patch-foreign-cells function foreign-cells)
                        collect (wasm-add-function module +lisp-function-params+
                                                   +lisp-function-results+
                                                   (wasm-function-locals function)
