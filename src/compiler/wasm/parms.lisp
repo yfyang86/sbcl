@@ -125,6 +125,9 @@
     ;; the runtime instantiates them again when a saved core starts
     ;; (wasm-vm.lisp, wasm-arch.c)
     *wasm-loaded-modules*
+    ;; called from the safe point when the host's timer has expired
+    ;; (wasm-arch.c wasm_pending_interrupt; SIGALRM elsewhere)
+    sb-impl::run-expired-timers
     ,@*runtime-asm-routines*)
   #'equalp)
 

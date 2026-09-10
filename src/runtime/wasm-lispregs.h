@@ -57,4 +57,8 @@
 #define LISP_REGISTER_AREA_CARD_MASK 464
 /* the linkage cell FOREIGN-SYMBOL-SAP read last (undefined_alien_function) */
 #define LISP_REGISTER_AREA_FOREIGN_CELL 468
+/* the stack guards: compiled code compares CSP (EMIT-STACK-CHECK) and the
+ * binding stack pointer (DYNBIND) with these, see check_stack_guards */
+#define LISP_REGISTER_AREA_CONTROL_STACK_LIMIT 472
+#define LISP_REGISTER_AREA_BINDING_STACK_LIMIT 476
 #define LISP_REGISTER_AREA_SIZE     512

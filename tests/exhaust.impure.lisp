@@ -1,6 +1,3 @@
-;;; the WebAssembly port: depth: no control-stack guard on this target yet
-#+wasm (invoke-restart 'run-tests::skip-file)
-
 ;;;; tests of the system's ability to catch resource exhaustion problems
 
 ;;;; This software is part of the SBCL system. See the README file for

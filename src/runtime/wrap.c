@@ -546,7 +546,28 @@ int s_issock(mode_t mode)
 }
 #endif /* !LISP_FEATURE_WIN32 */
 
-#ifdef LISP_FEATURE_UNIX
+#ifdef LISP_FEATURE_WASM
+/* in slices, so that the timer runs when it expires during the sleep */
+int64_t wasm_timer_remaining_ns(void);
+int64_t wasm_monotonic_ns(void);
+void wasm_timer_expired(void);
+void sb_nanosleep(time_t sec, int nsec)
+{
+    int64_t remaining = (int64_t)sec * 1000000000 + nsec;
+    while (remaining > 0) {
+        int64_t until = wasm_timer_remaining_ns(), slice = remaining;
+        if (until >= 0 && until < slice) slice = until;
+        if (slice > 0) {
+            struct timespec rqtp = {slice / 1000000000, slice % 1000000000}, rmtp;
+            int64_t before = wasm_monotonic_ns();
+            nanosleep(&rqtp, &rmtp);
+            remaining -= wasm_monotonic_ns() - before;
+        }
+        /* the timers run here (and may leave by a non-local exit) */
+        if (wasm_timer_remaining_ns() == 0) wasm_timer_expired();
+    }
+}
+#elif defined LISP_FEATURE_UNIX
 void sb_nanosleep(time_t sec, int nsec)
 {
     struct timespec rqtp = {sec, nsec};
@@ -610,21 +631,59 @@ int sb_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 }
 
 #ifdef LISP_FEATURE_WASM
-/* WASI has no interval timers (nor the struct); the host's timer support
- * (a later sprint) replaces them. Report ENOSYS so that Lisp callers see
- * an error. */
+/* WASI has no interval timers and no signals. The runtime keeps the one
+ * ITIMER_REAL deadline itself (SET-SYSTEM-TIMER, timer.lisp, sets it for
+ * the next timer to expire) and asks the host to tick the epoch when it
+ * is due (sbcl_host.set_timer): running Lisp code then finds the TIMER
+ * bit of the interrupt-pending word at its next safe point and calls
+ * RUN-EXPIRED-TIMERS (wasm-arch.c). A sleep is cut into slices at the
+ * deadline, so that a timer expiring during a sleep runs then, as the
+ * signal would have interrupted nanosleep (sb_nanosleep below). */
 #include <errno.h>
-struct itimerval;
+#include <time.h>
+#include <stdint.h>
+#include <sys/time.h>
+#ifndef ITIMER_REAL
+/* wasi-libc declares the interval timers only for its own targets */
+#define ITIMER_REAL 0
+struct itimerval { struct timeval it_interval; struct timeval it_value; };
+#endif
+int64_t wasm_timer_deadline;    /* CLOCK_MONOTONIC ns; 0: no timer */
+extern void wasm_set_host_timer(int64_t usec);
+extern void wasm_timer_expired(void);
+int64_t wasm_monotonic_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+/* -1 without a timer, else the nanoseconds until the deadline (0: due) */
+int64_t wasm_timer_remaining_ns(void)
+{
+    if (!wasm_timer_deadline) return -1;
+    int64_t d = wasm_timer_deadline - wasm_monotonic_ns();
+    return d < 0 ? 0 : d;
+}
 int sb_getitimer(int which, struct itimerval *value)
 {
-        errno = ENOSYS;
-        return -1;
+    if (which != ITIMER_REAL) { errno = EINVAL; return -1; }
+    int64_t r = wasm_timer_remaining_ns();
+    memset(value, 0, sizeof *value);
+    if (r > 0) {
+        value->it_value.tv_sec = r / 1000000000;
+        value->it_value.tv_usec = (r % 1000000000) / 1000;
+    }
+    return 0;
 }
 
 int sb_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
 {
-        errno = ENOSYS;
-        return -1;
+    if (which != ITIMER_REAL) { errno = EINVAL; return -1; }
+    if (ovalue) sb_getitimer(which, ovalue);
+    int64_t usec = (int64_t)value->it_value.tv_sec * 1000000 + value->it_value.tv_usec;
+    wasm_timer_deadline = usec > 0 ? wasm_monotonic_ns() + usec * 1000 : 0;
+    wasm_set_host_timer(usec > 0 ? usec : 0);
+    return 0;
 }
 #else
 int sb_getitimer(int which, struct itimerval *value)

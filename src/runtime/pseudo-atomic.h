@@ -35,6 +35,8 @@ extern uint32_t lisp_register_area[];
 # define WASM_PENDING_INTERRUPT 1  /* the host's Ctrl-C */
 # define WASM_PENDING_TRACE 2      /* SBCL_WASM_TRACE_ENTRIES */
 # define WASM_PENDING_GC 4         /* set by trigger_gc through the macro below */
+# define WASM_PENDING_GUARD 8      /* a stack guard is lowered: poll until the stack shrinks back */
+# define WASM_PENDING_TIMER 16     /* the host's timer expired: RUN-EXPIRED-TIMERS */
 # define get_pseudo_atomic_interrupted(th) ((WASM_PENDING_WORD & WASM_PENDING_GC) != 0)
 # define set_pseudo_atomic_interrupted(th) (WASM_PENDING_WORD |= WASM_PENDING_GC)
 # define clear_pseudo_atomic_interrupted(th) (WASM_PENDING_WORD &= ~(uint32_t)WASM_PENDING_GC)

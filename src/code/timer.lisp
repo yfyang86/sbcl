@@ -441,6 +441,17 @@ triggers."
 (defun run-timer (timer)
   (let ((function (%timer-interrupt-function timer))
         (thread (%timer-thread timer)))
+    ;; The WebAssembly port: one thread, no signals. RUN-EXPIRED-TIMERS
+    ;; is called from the safe point when the host's timer has expired
+    ;; (wasm-arch.c), with interrupts enabled; the function runs here
+    ;; as INTERRUPT-THREAD would run it, with interrupts disabled under
+    ;; ALLOW-WITH-INTERRUPTS.
+    #+wasm
+    (if (eq t thread)
+        (error "timers with :THREAD T are not supported on this target")
+        (without-interrupts
+          (allow-with-interrupts (funcall function))))
+    #-wasm
     (if (eq t thread)
         (sb-thread:make-thread function :name (format nil "Timer ~A"
                                                       (%timer-name timer)))

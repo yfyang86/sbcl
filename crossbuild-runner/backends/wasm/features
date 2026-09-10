@@ -1,3 +1,4 @@
 :gencgc :soft-card-marks
 :compare-and-swap-vops
 :wasm32 :wasi
+:os-provides-poll

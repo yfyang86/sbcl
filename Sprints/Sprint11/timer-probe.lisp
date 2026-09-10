@@ -1,0 +1,13 @@
+;;; Sprint 11: the timer paths (a sleep, a busy loop, with-timeout), see develop.md section 4
+(let* ((ran nil) (timer (sb-ext:make-timer (lambda () (setf ran t) (format t "~&;; timer function ran~%")))))
+  (sb-ext:schedule-timer timer 0.3)
+  (format t "~&;; itimer after schedule: ~S~%" (multiple-value-list (sb-unix:unix-getitimer :real)))
+  (sleep 1)
+  (format t "~&;; after sleep: ran ~S queue ~S interrupts-enabled ~S pending ~S~%" ran (sb-impl::%pqueue-contents sb-impl::*schedule*) sb-sys:*interrupts-enabled* sb-sys:*interrupt-pending*))
+(let* ((ran nil) (timer (sb-ext:make-timer (lambda () (setf ran t) (format t "~&;; busy timer function ran~%")))))
+  (sb-ext:schedule-timer timer 0.3)
+  (let ((start (get-internal-real-time)))
+    (loop until (or ran (> (- (get-internal-real-time) start) (* 2 internal-time-units-per-second))))
+    (format t "~&;; busy: ran ~S after ~,3F s; queue ~S~%" ran (/ (- (get-internal-real-time) start) internal-time-units-per-second 1.0) (sb-impl::%pqueue-contents sb-impl::*schedule*))))
+(format t "~&;; with-timeout: ~S~%" (handler-case (sb-ext:with-timeout 0.3 (sleep 2) :slept) (sb-ext:timeout () :timeout)))
+(sb-ext:exit)

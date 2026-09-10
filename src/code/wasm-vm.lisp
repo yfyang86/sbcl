@@ -135,19 +135,24 @@
   (bytes system-area-pointer) (length unsigned-int) (table-base unsigned-int))
 
 (defvar *wasm-loaded-modules* nil
-  "The modules instantiated at run time, as (table-base . bytes), newest
-first. A saved core keeps them; the runtime instantiates them again, in
-order, when the core starts (wasm_load_core_module).")
+  "The modules a saved core instantiates when it starts, as
+(table-base . bytes), newest first (wasm_load_core_module). Set by
+WASM-MERGE-LOADED-MODULES at save time: the one module holding every
+function loaded at run time.")
 
-(defun wasm-install-code (code octets)
-  "Build a module from OCTETS, the compiler's blob for the functions of
-the code object CODE, instantiate it, and store each entry's table index
-in its simple-fun's self slot."
-  (multiple-value-bind (functions entries) (sb-wasm-asm::parse-wasm-code octets)
-    (let* ((module (sb-wasm-asm::make-lisp-module))
-           (routine-imports '()))
-      ;; the assembly routines the code calls directly: imported from the
-      ;; shared table by index (import module "table", name the index)
+(defvar *wasm-code-blobs* nil
+  "Every code blob installed at run time (WASM-INSTALL-CODE), as
+(table-base . octets), newest first. SAVE-LISP-AND-DIE lowers them all
+into the one module of *WASM-LOADED-MODULES*.")
+
+;;; The assembly routines the functions of BLOBS (lists of parsed
+;;; functions) call directly, imported into MODULE from the shared table
+;;; by index (import module "table", name the index); returns the alist
+;;; (name . function-index). Imports precede defined functions, so this
+;;; comes before WASM-LOWER-FUNCTIONS.
+(defun wasm-import-routines (module blobs)
+  (let ((routine-imports '()))
+    (dolist (functions blobs routine-imports)
       (dolist (f functions)
         (loop for (nil kind operand) in (sb-wasm-asm::wasm-function-patches f)
               when (and (eq kind :assembly-routine)
@@ -158,66 +163,111 @@ in its simple-fun's self slot."
                                 (princ-to-string (wasm-routine-table-index operand))
                                 sb-wasm-asm::+lisp-function-params+
                                 sb-wasm-asm::+lisp-function-results+))
-                         routine-imports)))
-      (let* ((base (sb-wasm-asm::wasm-import-count module :func))
-             (n (length functions))
-             (table-base *wasm-table-next*)
-             (indices '()))
-        (setf *wasm-table-next* (+ table-base n))
-        (loop for f in functions
-              for i from base
-              do (setf (sb-wasm-asm::wasm-function-index f) i))
-        (flet ((table-slot (module-index) (+ table-base (- module-index base))))
-          (dolist (f functions)
-            (let ((body (sb-wasm-asm::wasm-function-body f)))
-              (loop for (offset kind operand) in (sb-wasm-asm::wasm-function-patches f)
-                    do (sb-wasm-asm::patch-fixed-leb128
-                        body offset
-                        (ecase kind
-                          (:function (+ base operand))
-                          (:assembly-routine (cdr (assoc operand routine-imports :test #'string=)))
-                          (:type (sb-wasm-asm::wasm-type-index module (first operand) (second operand)))
-                          (:assembly-routine-entry (wasm-routine-table-index operand))
-                          (:foreign
-                           (alien-linkage-index-to-addr
-                            (sb-impl::ensure-alien-linkage-index operand nil) nil))
-                          (:foreign-dataref
-                           (alien-linkage-index-to-addr
-                            (sb-impl::ensure-alien-linkage-index operand t) t))
-                          (:coverage (error "code coverage is not supported on this target yet"))
-                          (:layout-id (wasm-layout-id-of operand)))
-                        (sb-wasm-asm::patch-kind-signed-p kind)))
-              (push (sb-wasm-asm::wasm-add-function
-                     module sb-wasm-asm::+lisp-function-params+ sb-wasm-asm::+lisp-function-results+
-                     (sb-wasm-asm::wasm-function-locals f) body
-                     :name (sb-wasm-asm::wasm-function-name f))
-                    indices)))
-          (sb-wasm-asm::wasm-add-elements
-           module 0 (sb-wasm-asm::i32-const-expression table-base) (nreverse indices))
-          ;; the table range, for the host: two little-endian u32
-          (let ((range (make-array 8 :element-type '(unsigned-byte 8))))
-            (loop for (value start) in (list (list table-base 0) (list n 4))
-                  do (dotimes (i 4)
-                       (setf (aref range (+ start i)) (ldb (byte 8 (* 8 i)) value))))
-            (sb-wasm-asm::wasm-add-custom-section module "sbcl.core.table" range))
-          (let ((bytes (coerce (sb-wasm-asm::wasm-module-octets module)
-                               '(simple-array (unsigned-byte 8) (*)))))
-            (with-pinned-objects (bytes)
-              (when (zerop (%wasm-instantiate-module (vector-sap bytes) (length bytes) table-base))
-                (error "the host could not instantiate the module of ~S" code)))
-            ;; kept for SAVE-LISP-AND-DIE: a saved core instantiates them again
-            (push (cons table-base bytes) *wasm-loaded-modules*))
-          ;; the simple-funs' self slots: table indices. ENTRIES is in
-          ;; IR2-COMPONENT-ENTRIES order, numbered from the last simple-fun
-          ;; of the code object down (FOP-FUN-ENTRY, genesis).
-          (with-pinned-objects (code)
-            (loop for fun-index downfrom (1- (length entries))
-                  for local in entries
-                  do (let ((fun (sb-kernel:%code-entry-point code fun-index)))
-                       (setf (sap-ref-word (int-sap (get-lisp-obj-address fun))
-                                           (- (ash simple-fun-self-slot word-shift) fun-pointer-lowtag))
-                             (table-slot (sb-wasm-asm::wasm-function-index (nth local functions)))))))))
+                         routine-imports))))))
+
+;;; Patch FUNCTIONS (a parsed blob) and add them to MODULE, with an
+;;; element segment placing them in the shared table from TABLE-BASE in
+;;; order. Returns the module index of the first: function I of the blob
+;;; is module function BASE+I and table entry TABLE-BASE+I.
+(defun wasm-lower-functions (module functions table-base routine-imports)
+  (let ((base (+ (sb-wasm-asm::wasm-import-count module :func)
+                 (length (sb-wasm-asm::wasm-module-functions module))))
+        (indices '()))
+    (loop for f in functions
+          for i from base
+          do (setf (sb-wasm-asm::wasm-function-index f) i))
+    (dolist (f functions)
+      (let ((body (sb-wasm-asm::wasm-function-body f)))
+        (loop for (offset kind operand) in (sb-wasm-asm::wasm-function-patches f)
+              do (sb-wasm-asm::patch-fixed-leb128
+                  body offset
+                  (ecase kind
+                    (:function (+ base operand))
+                    (:assembly-routine (cdr (assoc operand routine-imports :test #'string=)))
+                    (:type (sb-wasm-asm::wasm-type-index module (first operand) (second operand)))
+                    (:assembly-routine-entry (wasm-routine-table-index operand))
+                    (:foreign
+                     (alien-linkage-index-to-addr
+                      (sb-impl::ensure-alien-linkage-index operand nil) nil))
+                    (:foreign-dataref
+                     (alien-linkage-index-to-addr
+                      (sb-impl::ensure-alien-linkage-index operand t) t))
+                    (:coverage (error "code coverage is not supported on this target yet"))
+                    (:layout-id (wasm-layout-id-of operand)))
+                  (sb-wasm-asm::patch-kind-signed-p kind)))
+        (push (sb-wasm-asm::wasm-add-function
+               module sb-wasm-asm::+lisp-function-params+ sb-wasm-asm::+lisp-function-results+
+               (sb-wasm-asm::wasm-function-locals f) body
+               :name (sb-wasm-asm::wasm-function-name f))
+              indices)))
+    (sb-wasm-asm::wasm-add-elements
+     module 0 (sb-wasm-asm::i32-const-expression table-base) (nreverse indices))
+    base))
+
+;;; The module's table range, for the host: two little-endian u32 in the
+;;; custom section "sbcl.core.table".
+(defun wasm-note-table-range (module table-base n)
+  (let ((range (make-array 8 :element-type '(unsigned-byte 8))))
+    (loop for (value start) in (list (list table-base 0) (list n 4))
+          do (dotimes (i 4)
+               (setf (aref range (+ start i)) (ldb (byte 8 (* 8 i)) value))))
+    (sb-wasm-asm::wasm-add-custom-section module "sbcl.core.table" range)))
+
+(defun wasm-module-bytes (module)
+  (coerce (sb-wasm-asm::wasm-module-octets module) '(simple-array (unsigned-byte 8) (*))))
+
+(defun wasm-install-code (code octets)
+  "Build a module from OCTETS, the compiler's blob for the functions of
+the code object CODE, instantiate it, and store each entry's table index
+in its simple-fun's self slot."
+  (multiple-value-bind (functions entries) (sb-wasm-asm::parse-wasm-code octets)
+    (let* ((module (sb-wasm-asm::make-lisp-module))
+           (routine-imports (wasm-import-routines module (list functions)))
+           (n (length functions))
+           (table-base *wasm-table-next*))
+      (setf *wasm-table-next* (+ table-base n))
+      (let ((base (wasm-lower-functions module functions table-base routine-imports)))
+        (wasm-note-table-range module table-base n)
+        (let ((bytes (wasm-module-bytes module)))
+          (with-pinned-objects (bytes)
+            (when (zerop (%wasm-instantiate-module (vector-sap bytes) (length bytes) table-base))
+              (error "the host could not instantiate the module of ~S" code))))
+        ;; kept for SAVE-LISP-AND-DIE (WASM-MERGE-LOADED-MODULES)
+        (push (cons table-base octets) *wasm-code-blobs*)
+        ;; the simple-funs' self slots: table indices. ENTRIES is in
+        ;; IR2-COMPONENT-ENTRIES order, numbered from the last simple-fun
+        ;; of the code object down (FOP-FUN-ENTRY, genesis).
+        (with-pinned-objects (code)
+          (loop for fun-index downfrom (1- (length entries))
+                for local in entries
+                do (let ((fun (sb-kernel:%code-entry-point code fun-index)))
+                     (setf (sap-ref-word (int-sap (get-lisp-obj-address fun))
+                                         (- (ash simple-fun-self-slot word-shift) fun-pointer-lowtag))
+                           (+ table-base
+                              (- (sb-wasm-asm::wasm-function-index (nth local functions))
+                                 base)))))))
       code)))
+
+;;; SAVE-LISP-AND-DIE (DEINIT): lower every blob loaded at run time into
+;;; one module, which the saved core instantiates in place of the
+;;; one-per-code-object modules of the session (their number: a warm
+;;; load's is over seven thousand; each is a compilation and a memory
+;;; mapping at startup). The blobs stay, for the next save.
+(defun wasm-merge-loaded-modules ()
+  (when *wasm-code-blobs*
+    (let* ((entries (sort (copy-list *wasm-code-blobs*) #'< :key #'car))
+           (blobs (mapcar (lambda (entry)
+                            (values (sb-wasm-asm::parse-wasm-code (cdr entry))))
+                          entries))
+           (module (sb-wasm-asm::make-lisp-module))
+           (routine-imports (wasm-import-routines module blobs))
+           (table-base (car (first entries))))
+      (loop for entry in entries
+            for functions in blobs
+            do (wasm-lower-functions module functions (car entry) routine-imports))
+      (wasm-note-table-range module table-base (- *wasm-table-next* table-base))
+      (setf *wasm-loaded-modules* (list (cons table-base (wasm-module-bytes module))))
+      (length entries))))
 
 ;;; A funcallable instance is entered through its function slot, by the
 ;;; compiled call sequence (EMIT-FUNCTION-OBJECT-ENTRY) and by the

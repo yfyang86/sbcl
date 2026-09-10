@@ -1,0 +1,66 @@
+name: Linux WebAssembly
+
+# The WebAssembly port (WASM-Manual.md): the tool chain, the host, the
+# cross build, the runtime, the warm load, the contribs and both test
+# suites, as build-wasm.sh runs them. The suites take about an hour each.
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: install host sbcl
+      run: |
+        sudo apt-get -qq update | true
+        sudo apt-get -qq install libzstd-dev
+        cd /tmp/
+        wget -q https://github.com/sbcl/sbcl/releases/download/sbcl-1.4.14/sbcl-2.4.8-x86-64-linux-binary.tar.bz2
+        tar xf sbcl-2.4.8-x86-64-linux-binary.tar.bz2
+        cd sbcl-2.4.8-x86-64-linux/
+        sudo ./install.sh
+
+    # wasi-sdk, wasmtime and wasm-tools at the versions pinned in
+    # tools-for-build/wasm-env.sh (downloaded when missing); cargo comes
+    # with the runner
+    - name: tool chain
+      run: ./build-wasm.sh toolchain
+
+    - name: cache the Wasmtime host build
+      uses: actions/cache@v4
+      with:
+        path: |
+          wasm/target
+          ~/.cargo/registry
+        key: sbcl-wasm-host-${{ hashFiles('wasm/Cargo.lock', 'wasm/crates/**') }}
+
+    # the host, pass-1, pass-2, the runtime, the groveled constants check,
+    # the smoke test, the warm load and the pure-Lisp contribs
+    - name: build
+      run: ./build-wasm.sh --jobs 4 host lisp runtime grovel smoke warm contrib
+
+    - name: level-0 and level-1 tests
+      run: ./build-wasm.sh test
+
+    # the suites run many processes, each mapping its modules: the mapping
+    # limit is raised as WASM-Manual.md describes
+    - name: regression tests
+      run: |
+        sudo sysctl -w vm.max_map_count=1048576
+        ./build-wasm.sh regress
+
+    - name: ANSI tests
+      run: ./build-wasm.sh ansi
+
+    - name: logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: wasm-build-logs
+        path: obj/wasm-build/*.log
+        if-no-files-found: ignore

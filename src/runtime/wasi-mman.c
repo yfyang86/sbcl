@@ -72,10 +72,22 @@ void wasm_place_canary(int which)
     if (c) memset(c, CANARY_BYTE, CANARY_BYTES);
     wasm_canaries[which] = c;
 }
-/* The first changed byte's index and canary, printed; -1 when intact. */
+/* The first changed byte's index and canary, printed; -1 when intact.
+ * The page below the runtime's data (addresses 0..0x3ff, which nothing
+ * maps: the linker's --global-base) is a third canary, checked as well:
+ * a write there is a null-pointer store or a runaway pointer. */
 int wasm_check_canaries(void)
 {
     int which;
+    {
+        uint32_t *page = (uint32_t*)0, i, end = 0x400 / 4;
+        for (i = 1; i < end; i++)
+            if (page[i]) {
+                fprintf(stderr, "; the null page changed at address %#x: %#x\n",
+                        (unsigned)(i * 4), (unsigned)page[i]);
+                return (int)(i * 4);
+            }
+    }
     for (which = 0; which < 2; which++) {
         unsigned char *c = wasm_canaries[which];
         if (!c) continue;

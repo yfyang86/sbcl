@@ -481,7 +481,10 @@ avoiding `atexit(3)` hooks, etc. Otherwise `exit(2)` is called."
   (or (newcharstar-string (alien-funcall (extern-alien "uid_username"
                                                        (function (* char) int))
                                          uid))
-      (error "found no match for Unix uid=~S" uid)))
+      ;; the WebAssembly port: WASI has no user database; FILE-AUTHOR
+      ;; answers NIL (an unknown author) rather than failing
+      #+wasm nil
+      #-wasm (error "found no match for Unix uid=~S" uid)))
 
 ;;; Return the namestring of the home directory, being careful to
 ;;; include a trailing #\/

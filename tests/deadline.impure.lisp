@@ -33,12 +33,18 @@
     (test (float (1+ sb-kernel:internal-seconds-limit) 1.0f0))
     (test (float (1+ sb-kernel:internal-seconds-limit) 1.0d0))))
 
-(with-test (:name (:deadline sb-ext:run-program :trivial) :fails-on :win32)
+(with-test (:name (:deadline sb-ext:run-program :trivial) :fails-on :win32
+            ;; the WebAssembly port: no-fork: the host runs the child and
+            ;; waits for it, so no deadline can interrupt the wait
+            :skipped-on :wasm)
   (assert-timeout ("A deadline was reached after 1 second.")
     (sb-sys:with-deadline (:seconds 1)
       (run-sleep 3))))
 
-(with-test (:name (:deadline sb-sys:defer-deadline 1) :fails-on :win32)
+(with-test (:name (:deadline sb-sys:defer-deadline 1) :fails-on :win32
+            ;; the WebAssembly port: no-fork: the host runs the child and
+            ;; waits for it, so no deadline can interrupt the wait
+            :skipped-on :wasm)
   (let ((n 0))
     (assert-timeout ("A deadline was reached after 0.1 seconds.")
       (handler-bind ((sb-sys:deadline-timeout
@@ -50,7 +56,10 @@
           (run-sleep 2))))
     (assert (= n 2))))
 
-(with-test (:name (:deadline sb-sys:defer-deadline 2) :fails-on :win32)
+(with-test (:name (:deadline sb-sys:defer-deadline 2) :fails-on :win32
+            ;; the WebAssembly port: no-fork: the host runs the child and
+            ;; waits for it, so no deadline can interrupt the wait
+            :skipped-on :wasm)
   (let ((n 0)
         (final nil))
     (handler-case
@@ -65,7 +74,10 @@
     (assert (plusp n))
     (assert (not final))))
 
-(with-test (:name (:deadline sb-sys:defer-deadline 3) :fails-on :win32)
+(with-test (:name (:deadline sb-sys:defer-deadline 3) :fails-on :win32
+            ;; the WebAssembly port: no-fork: the host runs the child and
+            ;; waits for it, so no deadline can interrupt the wait
+            :skipped-on :wasm)
   (let ((n 0))
     (assert-timeout ("A deadline was reached after 0.1 seconds.")
       (handler-bind ((sb-sys:deadline-timeout
@@ -78,7 +90,10 @@
           (run-sleep 3))))
     (assert (plusp n))))
 
-(with-test (:name (:deadline sb-sys:cancel-deadline) :fails-on :win32)
+(with-test (:name (:deadline sb-sys:cancel-deadline) :fails-on :win32
+            ;; the WebAssembly port: no-fork: the host runs the child and
+            ;; waits for it, so no deadline can interrupt the wait
+            :skipped-on :wasm)
   (let ((n 0)
         (final nil))
     (handler-case

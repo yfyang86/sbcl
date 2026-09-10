@@ -257,17 +257,33 @@ function so that a loader can renumber it."
     (setf value (ash value -7)))
   (buffer-byte buffer (logand value #x0F)))
 
+;;; The safe point of a loop: a jump back to an arm at or before the
+;;; current one polls the thread's interrupt-pending word, as every entry
+;;; does (EMIT-SAFE-POINT, call.lisp), so that a loop without calls
+;;; still sees the host's interrupt, the timer and a pending collection.
+;;; The word is zero unless something is pending: a load and a branch.
+(defun emit-back-edge-poll (buffer)
+  (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)  ; global.get thread
+  (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
+  (buffer-uleb128 buffer sb-vm::+thread-interrupt-pending-offset+)
+  (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+)   ; if
+  (buffer-byte buffer #x10) (buffer-uleb128 buffer sb-vm::+import-pending-interrupt+) ; call
+  (buffer-byte buffer #x0B))                                          ; end
+
 (defun emit-note-lowering (buffer note ctx)
   (let ((arms (fctx-arms ctx))
         (pc-local (fctx-pc-local ctx)))
     (flet ((target-arm (label)
              (arm-index (arm-at arms (sb-assem:label-position label))))
            (local-target-p (label)
-             (find (sb-assem:label-position label) arms :key #'arm-start)))
+             (find (sb-assem:label-position label) arms :key #'arm-start))
+           (backward-p (label)
+             (<= (sb-assem:label-position label) (control-note-posn note))))
       (ecase (control-note-kind note)
         (:jump
          (let ((label (control-note-labels note)))
            (cond ((local-target-p label)
+                  (when (backward-p label) (emit-back-edge-poll buffer))
                   (emit-set-pc-and-loop buffer pc-local (target-arm label)))
                  (t
                   ;; a tail local call into another function
@@ -277,9 +293,11 @@ function so that a loader can renumber it."
          (let ((label (control-note-labels note)))
            (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+) ; if
            (let ((*open* (cons :if *open*)))
-             (if (local-target-p label)
-                 (emit-set-pc-and-loop buffer pc-local (target-arm label))
-                 (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12)))
+             (cond ((local-target-p label)
+                    (when (backward-p label) (emit-back-edge-poll buffer))
+                    (emit-set-pc-and-loop buffer pc-local (target-arm label)))
+                   (t
+                    (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12))))
            (buffer-byte buffer #x0B)))                                    ; end
         (:jump-table
          ;; index is on the operand stack: one block per case plus one for

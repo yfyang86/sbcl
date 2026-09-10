@@ -31,6 +31,12 @@
 ;;; The linkage cell FOREIGN-SYMBOL-SAP read last (c-call.lisp): the
 ;;; runtime's undefined_alien_function names the undefined alien by it.
 (defconstant +thread-foreign-cell-offset+ 468)
+;;; The stack guards (call.lisp EMIT-STACK-CHECK, cell.lisp DYNBIND):
+;;; the runtime sets each word to the stack's end less a guard zone;
+;;; a frame or binding past it calls PENDING-INTERRUPT, which signals
+;;; the STORAGE-CONDITION (wasm-arch.c check_stack_guards).
+(defconstant +thread-control-stack-limit-offset+ 472)
+(defconstant +thread-binding-stack-limit-offset+ 476)
 
 ;;; The scratch locals +SCRATCH-I32-LOCAL+, +SCRATCH-F32-LOCAL+ and
 ;;; +SCRATCH-F64-LOCAL+ every Lisp function starts with are defined in
