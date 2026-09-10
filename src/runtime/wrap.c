@@ -577,6 +577,8 @@ void sb_nanosleep(time_t sec, int nsec)
         rqtp = rmtp;
     }
 }
+#endif
+#ifdef LISP_FEATURE_UNIX
 
 void sb_nanosleep_double(double seconds) {
     /* Some (which?) platforms, apparently, can't sleep more than 100
