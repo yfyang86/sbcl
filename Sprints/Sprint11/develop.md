@@ -168,8 +168,13 @@ backward jump, including those inside a VOP (the argument-copying and
 values loops of call.lisp, values.lisp): the warm compile then died in
 the type system with a collection run from such a loop, whose values
 are in Wasm locals or half-moved on the stack; only the branches the
-compiler emits between its blocks (`BRANCH`, `EMIT-CONDITIONAL-BRANCH`,
-marked `:poll` on the control note) qualify.
+compiler emits between its blocks qualify: `GENERATE-CODE` binds
+`*BLOCK-BRANCH-P*` while the generator of `BRANCH` or of a
+`:conditional` VOP runs, and the assembler marks their jumps `:poll`
+on the control note (most conditional VOPs emit their `jump-if`
+themselves; the first version marked only `EMIT-CONDITIONAL-BRANCH`'s
+and missed the loop of `(loop until x)`, whose back edge is the test's
+own branch).
 
 ## 5. One module per saved core
 

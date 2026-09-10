@@ -19,6 +19,14 @@ is validated on the test files it concerns, the records say what was
 verified how, and the suites' next full run is the CI job's or the next
 sprint's.
 
-Status: in progress. Records: `develop.md`, `verify.md`, `test.md`
-(targeted runs, no UAT). The sprint branch `sprint11` is merged into
-`wasm-dev` with `--no-ff` when its records are complete.
+Delivered: executable cores, the stack guards, timers through the
+host with a safe point at loop back edges, one module per saved core,
+the CI job, `poll` on files and `file-author`, the investigation of the
+ANSI state issue (gone in this build, the writer on the backlog with
+detectors), and the fixes found on the way (`FOREIGN-SYMBOL-SAP`'s
+double dereference, the level-1 rig's C-stack cells).
+
+Records: `develop.md` (what was built and why), `test.md` (the targeted
+runs, no UAT), `verify.md` (the exit criteria, the lessons, the
+backlog); the diagnostics scripts of the investigation. The sprint
+branch `sprint11` is merged into `wasm-dev` with `--no-ff`.
