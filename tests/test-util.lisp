@@ -57,7 +57,9 @@
            #:opaque-identity
            #:runtime #:split-string #:integer-sequence #:shuffle
            #:compile-so
-           :vop-existsp))
+           #:vop-existsp
+           #:push-package
+           #:pop-package))
 
 (in-package :test-util)
 
@@ -1150,3 +1152,13 @@
                               "-o" ,solib ,file)
                             :output t :error :output)
         (sb-alien:load-shared-object solib))))
+
+(defvar *packages* nil)
+
+(defmacro push-package ()
+  (push *package* *packages*)
+  nil)
+
+(defmacro pop-package ()
+  `(in-package ,(package-name (pop *packages*))))
+
