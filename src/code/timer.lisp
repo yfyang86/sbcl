@@ -438,6 +438,10 @@ triggers."
 ;;;   do not correctly support it, as per the comment above sb_thread_kill. Such
 ;;;   libpthread is probably buggy, because POSIX added it to the OK list
 ;;;   according to https://man7.org/linux/man-pages/man7/signal-safety.7.html
+#+wasm
+(defvar *wasm-timer-functions* '()
+  "The functions of the timers that expired, run after the scheduler lock is released.")
+
 (defun run-timer (timer)
   (let ((function (%timer-interrupt-function timer))
         (thread (%timer-thread timer)))
@@ -472,8 +476,6 @@ triggers."
 ;;; have been run.
 #+wasm
 (progn
-  (defvar *wasm-timer-functions* '()
-    "The functions of the timers that expired, run after the scheduler lock is released.")
   (defun run-expired-timers ()
     (let ((*wasm-timer-functions* '()))
       (%run-expired-timers)
