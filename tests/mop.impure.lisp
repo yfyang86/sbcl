@@ -774,7 +774,10 @@
   (assert (sb-ext:stack-allocated-p old))
   (when (functionp new)
     (assert (sb-ext:stack-allocated-p (sb-kernel:%funcallable-instance-fun old)))))
-(with-test (:name :change-class-temp-on-stack)
+(with-test (:name :change-class-temp-on-stack
+            ;; the WebAssembly port allocates nothing on the stack
+            ;; (dynamic-extent, doc/wasm-port/05-testing.md)
+            :skipped-on :wasm)
   (let ((i (make-instance 'chgclass-dx-test-1))
         (*uifdc-called* nil))
     (change-class i 'chgclass-dx-test-2)
