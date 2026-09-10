@@ -174,7 +174,21 @@ compiler emits between its blocks qualify: `GENERATE-CODE` binds
 on the control note (most conditional VOPs emit their `jump-if`
 themselves; the first version marked only `EMIT-CONDITIONAL-BRANCH`'s
 and missed the loop of `(loop until x)`, whose back edge is the test's
-own branch).
+own branch). That flag never reached the emitters either (the reason
+was not found: the binding is in the compiled `GENERATE-CODE`, the
+emitters read `NIL`), so the decision is structural in the end: the
+compiler already hands the function assembler its blocks' labels
+(`*wasm-block-labels*`, for grouping by environment), and a backward
+branch whose target is one of those labels is a block edge; a branch
+inside a VOP targets a label of its own.
+
+A false alarm on the way: the ANSI suite would not load into the new
+core ("invalid number of arguments" from its own `handler-case`
+macro), which looked like a compiler regression until the suite's
+`compile-and-load` turned out to load the fasls it had compiled with
+the previous build (a fasl newer than its source is not recompiled);
+`wasm-ansi-tests.sh` now deletes the suite's fasls whenever it rebuilds
+its core.
 
 ## 5. One module per saved core
 
