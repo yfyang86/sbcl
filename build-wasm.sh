@@ -188,6 +188,12 @@ ensure_version_file() {
         printf '"2.6.8.wasm-dev.%s"\n' "$hash" > version.lisp-expr
     fi
     echo "version.lisp-expr: $(tail -1 version.lisp-expr)"
+    # output/build-id.inc: genesis reads it into the core's build id
+    # (make-config.sh writes it; the port's build does not run that)
+    mkdir -p output
+    if [ ! -f output/build-id.inc ]; then
+        printf '"%s-%s-%s"\n' "$(hostname)" "$(id -un)" "$(date +%Y-%m-%d-%H-%M-%S)" > output/build-id.inc
+    fi
 }
 
 step_lisp() {
