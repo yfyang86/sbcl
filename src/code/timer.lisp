@@ -493,7 +493,7 @@ triggers."
                 ;; No more timers to run for now, reset the system timer.
                 do (run-timers)
                    (set-system-timer)
-                   (return-from run-expired-timers nil)
+                   (return-from #+wasm %run-expired-timers #-wasm run-expired-timers nil)
                 else
                 do (aver (eq timer (priority-queue-extract-maximum *schedule*)))
                    (push timer timers)))
