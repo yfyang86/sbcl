@@ -87,7 +87,18 @@ same run is the sprint's measurement against the host (section 5).
 
 ## 5. The final runs
 
-(the s13g core: filled in below)
+The s13g core (`obj/wasm-build/lisp-s13g.log`: the sprint's code, the
+runtime with the collector's root fix, the save fix) built and passed
+the smoke checks (`fib`, `catch`/`throw`, `with-timeout`, a full
+collection, run-time compilation) at 13:30 UTC; its regression and
+ANSI runs (`obj/wasm-build/regress-s13g.log`, `ansi-s13g.log`) were
+still running when the sprint was merged, on the user's request. The
+sprint's suite record is the s13f runs of sections 2 and 3 (the same
+compiled code; the two fixes since touch the collector's roots and the
+save, verified by hand in section 6), and the report of the s13f run
+is `doc/wasm-port/baselines/sprint-13.txt`. The s13g logs are to be
+read against it: the expectation is `save7.test.sh` passing and the
+rest unchanged.
 
 ## 6. Checked by hand
 
