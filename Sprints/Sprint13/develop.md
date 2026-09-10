@@ -162,6 +162,73 @@ registers), and a caller reloads them after the call. The cost: a
 function that leaves A2 and A3 alone stores and loads them anyway at
 its local calls and safe points, two words each way.
 
-## 4. The build and the measurements
+## 4. The builds and the measurements
 
-(filled in)
+Each build of the sprint went through pass-1 (34 s), the after-xc core
+and levels 0 and 1, then pass-2, `wasm-opt`, the runtime, the warm
+load and the contribs (`/tmp` scripts; about 12 minutes on the
+container's four cores); the cores are kept as
+`obj/wasm-build/sbcl-s13X.core`:
+
+| Build | Change | Levels | Pipeline |
+|---|---|---|---|
+| s13a | the cache, every flush point the whole used set | 16, 444/444 | passed |
+| s13b | the masks of a full call and a return | 16, 444/444 | passed |
+| s13c | inline allocation, the allocation entry's mask | 16, 444/444 | passed |
+| s13d | NARGS and A0..A3 as parameters | 16, 0/444 (a stale rig), 444/444 rebuilt | cold init: the `identity` pass-through (section 3) |
+| s13e | a `return` forcing the parameter registers of its mask | 16, 442/444 (`more-arg-values`) | not run |
+| s13f | the parameter registers in every mask | 16, 444/444 | passed; the suites of `test.md` |
+
+The core module of the cold core: 34 MB after `wasm-opt` in Sprint
+12, 45 MB with the cache (s13c), 44 MB with the parameters (s13f: the
+argument flushes and prologue loads gone, the parameter registers'
+flushes and reloads added); the warm load and the contribs took the
+same 8 minutes as before.
+
+Against Sprint 12's optimized core (`sbcl-s12opt.core`), 62–63
+benchmarks, scale 10, a 1 GB heap (`obj/wasm-build/cl-bench/`,
+`doc/wasm-port/baselines/sprint-13-cl-bench.md`):
+
+| Build | Geometric mean | `fib` | `tak` | `ctak` | `crc40` | `boyer` | `3d-arrays` | `clos-defmethod` |
+|---|---|---|---|---|---|---|---|---|
+| s13a | 1.27 | 1.19 | 1.07 | 0.99 | 1.25 | 1.42 | 3.60 | 0.62 |
+| s13b | 1.35 | 1.13 | 1.02 | 0.97 | 1.35 | 1.42 | 4.07 | 0.61 |
+| s13c | 1.49 | 1.09 | 1.22 | 0.98 | 1.43 | 1.61 | 3.84 | 0.58 |
+| s13f | 1.47 | 1.02 | 1.02 | 0.91 | 1.42 | 1.95 | 3.74 | 0.60 |
+
+(s13c's numbers were taken while s13d was building, so the s13c/s13f
+pair on an idle machine, `s13c-vs-s13f.txt`, is the one to read:
+0.98.) The reading: the cache and the inline allocation are worth
+half again over Sprint 12 across the suite, up to 3–4× on the array
+and bignum loops; the parameters are worth nothing measurable. A
+call still moves the same words through the area — the caller's
+frame registers and RA before, the callee's values and stack
+registers after, the parameter registers' round trip through every
+mask — and what the parameters saved (an argument's flush and load
+per call) the mask rule (section 3) spent again. The call-heavy
+kernels sit where Sprint 12 left them, and `ctak` (`catch`/`throw`
+through the runtime's unwind) a little below.
+
+What a full call costs now, from the code of a two-argument
+function calling another (`HI` in the probe of section 3): the
+caller sets NARGS, OCFP, RA, CFP (four `local.set`), pushes the five
+parameters and the entry index, stores seven words (the frame
+registers, RA), `call_indirect` (a type check in the engine), loads
+nine words (the reload set) and restores CODE from the frame; the
+callee's XEP compares NARGS, computes CSP, checks the stack limit
+and the interrupt word (two loads), moves the arguments to the
+body's registers, stores its used set and `return_call`s the body,
+which loads its used set again. Two flush-reload pairs and two
+stack checks per call, some 40 memory operations, against the
+native backend's handful of instructions: the gap on `fib` (section
+5) is here, and the plan's next steps are the ones that cut it — a
+body entered by the XEP without a second prologue (the XEP and the
+body in one Wasm function, or the body's entry taking the XEP's
+locals), a prologue that loads only what is read before it is
+written, `A0` as the result through a trampoline for the C callers,
+and the generic arithmetic's fixnum fast path inline (`fib`'s `+`
+and `<` are assembly-routine calls with a flush and a reload each).
+
+## 5. Against the host
+
+(filled in from the scale-1 run of the compute-bound subset)
