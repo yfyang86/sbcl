@@ -70,6 +70,9 @@ awk '/\(expected \(list\*/ { on = 1; sub(/.*\(expected /, "") }
                         for space = (position #\Space line)
                         unless (string= (subseq line (1+ space)) "PASS")
                           collect (subseq line 0 space))))
+       ;; FORMAT.E.26 formats random floats and fails now and then;
+       ;; ansi-tests.sh leaves it out of the failing set, so does this
+       (failing (set-difference failing '("FORMAT.E.26") :test #'equal))
        (unexpected (set-difference failing expected :test #'equal))
        (passing (set-difference expected failing :test #'equal)))
   (format t "unexpected failures: ~D~{ ~A~}~%" (length unexpected) (sort unexpected #'string<))

@@ -229,6 +229,55 @@ written, `A0` as the result through a trampoline for the C callers,
 and the generic arithmetic's fixnum fast path inline (`fib`'s `+`
 and `<` are assembly-routine calls with a flush and a reload each).
 
-## 5. Against the host
+## 5. What the suites did not find: the collector's register roots
+
+The compute-bound subset of cl-bench at scale 1 (the original run
+counts, ten times the sprint's measurements) died on the s13f core in
+`bitvectors` after the other kernels had run: `GC invariant lost,
+gencgc.c 1765`, a filler of negative size in
+`obliterate_nonpinned_words`. Sprint 12's core runs the same set
+clean; the s13b and s13c cores (the cache with the tuned masks, before
+the parameters) die the same way, so the cache is the cause. An
+instrumented runtime (a watch on the page's accounting, the pin
+sources logged) showed the sequence: page 2154, a cons page, is
+filled, collected, reused six times over the run; after its last reuse
+it holds one cons (8 bytes used); the next collection pins a "cons"
+576 bytes into it, through the *exact* pin path, and the filler pass
+finds a pinned object beyond the page's used bytes.
+
+The exact pin was the port's own: `pin_call_chain_and_boxed_registers`
+(gencgc.c, the precise-register backends' root scan) pinned every
+boxed register of the register area with `pin_exact_root`, which
+validates nothing — an exact root is by definition a live object. That
+was written in Sprint 8, when compiled code wrote every register to the
+area at every VOP, so a word there was at most a few instructions old
+and a dead one still pointed at its original page. With the cache a
+register the running code does not use is not written at all: the word
+in the area can be older than several collections, and once the
+collector has moved the object and reused the page, the "root" points
+into whatever the page holds now. The fix: the area's words are
+ambiguous roots, passed through `sticky_preserve_pointer` like a
+conservative backend's context registers (the conservative
+`conservative_root_p` and `preserve_pointer` are compiled for this
+target now, next to its precise stack scan), which accepts only an
+address within a page's used bytes that carries a plausible tag for
+the page's type, and leaves the exact object to `refine_ambiguous_roots`.
+The first version of the fix left the failure in place: the same
+function pins the registers of every interrupt context as exact roots
+too, and on this target a context is a copy of the area (the safe
+point's `maybe_gc`, an internal error's handler), so the stale word
+came in a second time; both loops validate now. The suites never
+allocate long enough between two uses of a stale register to hit the
+reused page; the benchmark's scale-1 run does, in one place.
+
+`save7.test.sh`, the other new failure, was the code size:
+`save-lisp-and-die` re-lowered the warm load's 7,000 blobs into a
+module at every save, 200 MB of garbage that the test's 260 MB heap
+could no longer absorb with the cached code a third bigger (Sprint 12
+fitted by 20 MB). `wasm-merge-loaded-modules` now skips the merge when
+no blob was loaded since the last one (`*wasm-merged-blobs*`), which
+is every save from a saved core; the save takes seconds less as well.
+
+## 6. Against the host
 
 (filled in from the scale-1 run of the compute-bound subset)

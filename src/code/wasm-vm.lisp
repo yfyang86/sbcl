@@ -259,8 +259,14 @@ in its simple-fun's self slot."
 ;;; mapping at startup). The blobs stay, for the next save; the modules
 ;;; installed after this (before the core is written) add themselves to
 ;;; *WASM-LOADED-MODULES* again.
+(defvar *wasm-merged-blobs* nil
+  "*WASM-CODE-BLOBS* as of the last merge: a save that loaded nothing since
+(a core saved from a saved core, as the tests do) has nothing to lower,
+and lowering a warm load's seven thousand blobs again costs 200 MB of
+garbage and the better part of a minute.")
 (defun wasm-merge-loaded-modules ()
-  (when *wasm-code-blobs*
+  (when (and *wasm-code-blobs* (not (eq *wasm-code-blobs* *wasm-merged-blobs*)))
+    (setf *wasm-merged-blobs* *wasm-code-blobs*)
     (let* ((entries (sort (copy-list *wasm-code-blobs*) #'< :key #'car))
            (blobs (mapcar (lambda (entry)
                             (values (sb-wasm-asm::parse-wasm-code (cdr entry))))
