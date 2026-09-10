@@ -434,13 +434,21 @@
 (defun segment-control-notes (segment)
   (reverse (sb-assem::segment-backend-data segment)))
 
-;;; unconditional branch to LABEL
-(define-instruction jump (segment label)
-  (:emitter (note-control segment :jump label nil)))
+;;; Unconditional branch to LABEL. A branch between the compiler's
+;;; blocks (the BRANCH VOP and the conditional VOPs, whose generators run
+;;; with *BLOCK-BRANCH-P* bound by GENERATE-CODE, codegen.lisp; or POLL
+;;; given as :POLL) is marked :POLL, which lets a backward one be a safe
+;;; point (EMIT-BACK-EDGE-POLL): a jump inside a VOP is not one, its
+;;; values may be in locals or under construction.
+(defvar *block-branch-p* nil)
+(defun branch-poll (poll)
+  (or poll (and *block-branch-p* :poll)))
+(define-instruction jump (segment label &optional poll)
+  (:emitter (note-control segment :jump label (branch-poll poll))))
 
 ;;; pops an i32; branches to LABEL if it is nonzero
-(define-instruction jump-if (segment label)
-  (:emitter (note-control segment :jump-if label nil)))
+(define-instruction jump-if (segment label &optional poll)
+  (:emitter (note-control segment :jump-if label (branch-poll poll))))
 
 ;;; pops an i32 index; branches to the indexed label, or DEFAULT
 (define-instruction jump-table (segment labels default)

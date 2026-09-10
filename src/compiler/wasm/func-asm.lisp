@@ -192,6 +192,9 @@ Each element is a tag; :loop marks the dispatch loop.")
   type-fixups
   ;; position -> (flavor . name) for every other fixup the loader patches
   fixups
+  ;; the labels of the compiler's blocks: a branch to one is a branch
+  ;; between blocks, and backward it is a loop's safe point
+  (block-labels '())
   ;; the function being lowered
   function)
 
@@ -257,17 +260,42 @@ function so that a loader can renumber it."
     (setf value (ash value -7)))
   (buffer-byte buffer (logand value #x0F)))
 
+;;; The safe point of a loop: a jump back to an arm at or before the
+;;; current one polls the thread's interrupt-pending word, as every entry
+;;; does (EMIT-SAFE-POINT, call.lisp), so that a loop without calls
+;;; still sees the host's interrupt, the timer and a pending collection.
+;;; The word is zero unless something is pending: a load and a branch.
+;;; (macros.lisp, compiled after this file: +THREAD-INTERRUPT-PENDING-OFFSET+
+;;; and +IMPORT-PENDING-INTERRUPT+ are these)
+(defconstant +poll-word-offset+ 456)
+(defconstant +poll-import+ 3)
+(defun emit-back-edge-poll (buffer)
+  (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)  ; global.get thread
+  (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
+  (buffer-uleb128 buffer +poll-word-offset+)
+  (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+)   ; if
+  (buffer-byte buffer #x10) (buffer-uleb128 buffer +poll-import+)     ; call pending_interrupt
+  (buffer-byte buffer #x0B))                                          ; end
+
 (defun emit-note-lowering (buffer note ctx)
   (let ((arms (fctx-arms ctx))
         (pc-local (fctx-pc-local ctx)))
     (flet ((target-arm (label)
              (arm-index (arm-at arms (sb-assem:label-position label))))
            (local-target-p (label)
-             (find (sb-assem:label-position label) arms :key #'arm-start)))
+             (find (sb-assem:label-position label) arms :key #'arm-start))
+           ;; a branch between the compiler's blocks (the target is a
+           ;; block's label; a branch inside a VOP targets a label of
+           ;; its own) going back: a loop's safe point
+           (backward-p (label)
+             (and (or (eq (control-note-data note) :poll)
+                      (member label (fctx-block-labels ctx) :test #'eq))
+                  (<= (sb-assem:label-position label) (control-note-posn note)))))
       (ecase (control-note-kind note)
         (:jump
          (let ((label (control-note-labels note)))
            (cond ((local-target-p label)
+                  (when (backward-p label) (emit-back-edge-poll buffer))
                   (emit-set-pc-and-loop buffer pc-local (target-arm label)))
                  (t
                   ;; a tail local call into another function
@@ -277,9 +305,11 @@ function so that a loader can renumber it."
          (let ((label (control-note-labels note)))
            (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+) ; if
            (let ((*open* (cons :if *open*)))
-             (if (local-target-p label)
-                 (emit-set-pc-and-loop buffer pc-local (target-arm label))
-                 (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12)))
+             (cond ((local-target-p label)
+                    (when (backward-p label) (emit-back-edge-poll buffer))
+                    (emit-set-pc-and-loop buffer pc-local (target-arm label)))
+                   (t
+                    (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12))))
            (buffer-byte buffer #x0B)))                                    ; end
         (:jump-table
          ;; index is on the operand stack: one block per case plus one for
@@ -663,13 +693,15 @@ routine is defined in the segment itself."
     (values (loop for (start next) on labels when next collect (cons start next))
             elsewhere)))
 
-(defun lower-functions (functions segment notes chunks asm-routines)
+(defun lower-functions (functions segment notes chunks asm-routines &key block-labels)
   "Fill in the bodies of FUNCTIONS (WASM-FUNCTION structs with their
-chunks), returning them."
+chunks), returning them. BLOCK-LABELS are the labels of the compiler's
+blocks (EMIT-NOTE-LOWERING)."
   (let* ((base (+ sb-vm::+n-runtime-imports+ (length asm-routines)))
          (ctx (make-fctx :bytes (sb-assem:segment-contents-as-vector segment)
                          :functions functions
                          :function-base base
+                         :block-labels block-labels
                          :asm-patches (assembly-routine-patches
                                        segment asm-routines sb-vm::+n-runtime-imports+
                                        functions)
@@ -761,7 +793,8 @@ of their first block. Returns (values functions assembly-routine-names)."
               (when (and (<= (car chunk) label) (< (car chunk) position))
                 (setf (car chunk) (min position (cdr chunk))))))))
       (let ((asm-routines (segment-assembly-routines segment)))
-        (values (lower-functions functions segment (segment-control-notes segment) chunks asm-routines)
+        (values (lower-functions functions segment (segment-control-notes segment) chunks asm-routines
+                                 :block-labels (mapcar #'car block-labels))
                 asm-routines)))))
 
 (defun sb-vm::wasm-note-component (ir2-component segment asmstream block-labels)
@@ -840,13 +873,24 @@ the routines' Wasm code blob for the fasl dumper."
                             +lisp-function-params+ +lisp-function-results+))
     m))
 
-(defun add-lisp-functions (module functions &key export)
+(defun patch-foreign-cells (function cells)
+  "Resolve the function's :FOREIGN patches whose names CELLS (an alist
+name -> address) knows: the linkage cells of the differential rig's
+mini-runtime (tests/wasm/minirt.c)."
+  (loop for (offset kind operand) in (wasm-function-patches function)
+        for cell = (and (eq kind :foreign) (assoc operand cells :test #'string=))
+        when cell
+        do (patch-fixed-leb128 (wasm-function-body function) offset (cdr cell) t)))
+
+(defun add-lisp-functions (module functions &key export foreign-cells)
   "Add FUNCTIONS (WASM-FUNCTION structs, in index order) to MODULE and
 install them in the shared table at table_base, in the same order. With
-EXPORT, also export each by name."
+EXPORT, also export each by name; FOREIGN-CELLS resolves :FOREIGN
+patches (PATCH-FOREIGN-CELLS)."
   (let ((indices (loop for function in functions
                        for name = (wasm-function-name function)
                        do (patch-type-indices module function)
+                          (patch-foreign-cells function foreign-cells)
                        collect (wasm-add-function module +lisp-function-params+
                                                   +lisp-function-results+
                                                   (wasm-function-locals function)

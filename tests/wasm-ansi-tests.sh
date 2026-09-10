@@ -23,6 +23,9 @@ LISP_OPTIONS="--noinform --no-userinit --no-sysinit --disable-debugger"
 SBCL="../../tools-for-build/wasm-sbcl.sh"
 if [ ! -f wasm-ansi.core ] || [ ../../output/sbcl.core -nt wasm-ansi.core ]; then
     echo "== loading the suite and saving wasm-ansi.core"
+    # the suite's compile-and-load keeps fasls across runs: those of an
+    # older build load into the new core and fail in odd ways
+    find . -name '*.fasl' -delete
     SBCL_WASM_TIMEOUT=3600 $SBCL --core ../../output/sbcl.core $RUNTIME_OPTIONS $LISP_OPTIONS \
         --load gclload1.lsp --load gclload2.lsp --load ../wasm-ansi-driver.lisp \
         --eval '(in-package :cl-test)' \

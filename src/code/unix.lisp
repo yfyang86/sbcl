@@ -481,7 +481,10 @@ avoiding `atexit(3)` hooks, etc. Otherwise `exit(2)` is called."
   (or (newcharstar-string (alien-funcall (extern-alien "uid_username"
                                                        (function (* char) int))
                                          uid))
-      (error "found no match for Unix uid=~S" uid)))
+      ;; the WebAssembly port: WASI has no user database; FILE-AUTHOR
+      ;; answers NIL (an unknown author) rather than failing
+      #+wasm nil
+      #-wasm (error "found no match for Unix uid=~S" uid)))
 
 ;;; Return the namestring of the home directory, being careful to
 ;;; include a trailing #\/
@@ -738,6 +741,14 @@ avoiding `atexit(3)` hooks, etc. Otherwise `exit(2)` is called."
 
 #-os-provides-poll
 (defun unix-simple-poll (fd direction to-msec)
+  ;; The WebAssembly port: WASI's poll_oneoff, behind wasi-libc's select
+  ;; and poll, fails on a regular file or a character device (and poll on
+  ;; the standard descriptors under Wasmtime); a file is always ready.
+  #+wasm
+  (multiple-value-bind (okay dev ino mode) (unix-fstat fd)
+    (declare (ignore dev ino))
+    (when (and okay (member (logand mode s-ifmt) (list s-ifreg s-ifchr)))
+      (return-from unix-simple-poll t)))
   (flet ((msec-to-sec-usec (msec)
            (multiple-value-bind (sec msec2) (truncate msec 1000)
              (values sec (* msec2 1000)))))

@@ -4061,6 +4061,13 @@ collect_garbage(generation_index_t last_gen)
 
     gc_active_p = 0;
 #ifdef LISP_FEATURE_WASM
+    /* SBCL_WASM_CANARY=1: check the canaries (wasi-mman.c) after every
+     * collection; a stray write is reported once, when first seen */
+    if (getenv("SBCL_WASM_CANARY")) {
+        extern int wasm_check_canaries(void);
+        static int reported;
+        if (!reported && wasm_check_canaries() >= 0) reported = 1;
+    }
     /* SBCL_WASM_TRACE_AFTER_GC=1: trace every function entry from the end of
      * the first collection on (the trace from startup is too long) */
     if (getenv("SBCL_WASM_TRACE_AFTER_GC")) {

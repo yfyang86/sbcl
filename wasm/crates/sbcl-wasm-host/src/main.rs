@@ -35,7 +35,7 @@
 //! Compiled modules are cached in Wasmtime's default cache directory, so
 //! the 38 MB core module compiles once per change rather than on every
 //! start (the cache is keyed on the module bytes).
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use wasmtime::*;
 use wasmtime_wasi::p1::WasiP1Ctx;
@@ -418,8 +418,40 @@ fn run() -> Result<()> {
     linker.func_wrap("sbcl_host", "run_process", run_process)?;
     // the host's process id, for the runtime's getpid (WASI has none)
     linker.func_wrap("sbcl_host", "process_id", |_: Caller<'_, State>| -> i32 { std::process::id() as i32 })?;
+    // The timer (sb_setitimer, wrap.c): the runtime keeps the deadline
+    // and asks for a tick when it is due; a thread sleeps until then and,
+    // if no later call superseded it, makes the epoch callback below set
+    // the TIMER bit (bit 4) for the running code's next safe point.
+    let timer_generation = Arc::new(AtomicU64::new(0));
+    let timer_fired = Arc::new(AtomicBool::new(false));
+    {
+        let generation = timer_generation.clone();
+        let fired = timer_fired.clone();
+        let engine = engine.clone();
+        linker.func_wrap("sbcl_host", "set_timer", move |_: Caller<'_, State>, usec: i64| {
+            let mine = generation.fetch_add(1, Ordering::SeqCst) + 1;
+            if usec > 0 {
+                let generation = generation.clone();
+                let fired = fired.clone();
+                let engine = engine.clone();
+                let spawned = std::thread::Builder::new().stack_size(64 << 10).spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_micros(usec as u64));
+                    if generation.load(Ordering::SeqCst) == mine {
+                        fired.store(true, Ordering::SeqCst);
+                        engine.increment_epoch();
+                    }
+                });
+                if let Err(e) = spawned {
+                    eprintln!("sbcl-wasm: no timer thread: {e}");
+                }
+            }
+        })?;
+    }
     linker.define_unknown_imports_as_traps(&module)?;
-    let mut argv = vec![path.clone()];
+    // SBCL_WASM_ARGV0: what the guest sees as argv[0] (the launcher of an
+    // executable core passes its own name, so the runtime finds the core
+    // embedded in it and *posix-argv* names it, as on native targets)
+    let mut argv = vec![std::env::var("SBCL_WASM_ARGV0").unwrap_or_else(|_| path.clone())];
     argv.extend(rest);
     // The whole file system is visible with the host's paths, and the
     // host's working directory is passed as PWD, which the runtime makes
@@ -431,6 +463,10 @@ fn run() -> Result<()> {
         .inherit_stdio()
         .inherit_env()
         .env("PWD", cwd.to_string_lossy())
+        // the guest's own whereabouts: the runtime uses them for
+        // *runtime-pathname* and for the launcher of an executable core
+        .env("SBCL_WASM_HOST", std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+        .env("SBCL_WASM_RUNTIME", host_err(std::fs::canonicalize(&path), || path.clone())?.to_string_lossy())
         .args(&argv)
         .preopened_dir("/", "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?
         .build_p1();
@@ -480,17 +516,25 @@ fn run() -> Result<()> {
         if n >= 2 {
             return Err(Error::msg("interrupted (Ctrl-C twice, or the deadline)"));
         }
+        // the bits to set in the interrupt-pending word: 1 an interrupt
+        // request, 16 the timer; the runtime uses the other bits
+        let mut bits = 0u32;
         if n > handled {
             handled = n;
+            bits |= 1;
+            eprintln!("sbcl-wasm: interrupt requested (press Ctrl-C again to terminate)");
+        }
+        if timer_fired.swap(false, Ordering::SeqCst) {
+            bits |= 16;
+        }
+        if bits != 0 {
             if let (Some(area), Some(mem)) = (ctx.data().register_area, ctx.data().memory) {
                 let off = (area + REGISTER_AREA_INTERRUPT_PENDING) as usize;
                 if let Some(word) = mem.data_mut(&mut ctx).get_mut(off..off + 4) {
-                    // bit 0 of the word; the runtime uses the other bits
-                    let v = u32::from_le_bytes([word[0], word[1], word[2], word[3]]) | 1;
+                    let v = u32::from_le_bytes([word[0], word[1], word[2], word[3]]) | bits;
                     word.copy_from_slice(&v.to_le_bytes());
                 }
             }
-            eprintln!("sbcl-wasm: interrupt requested (press Ctrl-C again to terminate)");
         }
         Ok(UpdateDeadline::Continue(1))
     });

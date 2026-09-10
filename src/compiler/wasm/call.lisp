@@ -151,13 +151,33 @@
 
 ;;; The safe point at every entry: the runtime's PENDING-INTERRUPT when
 ;;; the thread's interrupt-pending word is set (2.7; also the entry
-;;; trace). Emitted once the frame is set up, by XEP-SETUP-SP or, for
-;;; entries with &MORE arguments, by COPY-MORE-ARG.
+;;; trace) or the frame just allocated ends past the control-stack
+;;; limit (the guard, see +THREAD-CONTROL-STACK-LIMIT-OFFSET+). Emitted
+;;; once the frame is set up, by XEP-SETUP-SP or, for entries with &MORE
+;;; arguments, by COPY-MORE-ARG.
 (defun emit-safe-point ()
   (let ((skip (gen-label)))
     (inst global.get +thread-global+)
     (inst i32.load +thread-interrupt-pending-offset+)
+    (inst global.get +thread-global+)
+    (inst i32.load +thread-control-stack-limit-offset+)
+    (load-reg csp-tn)
+    (inst i32.lt_u)                     ; limit < CSP
+    (inst i32.or)
     (inst i32.eqz)
+    (inst jump-if skip)
+    (inst call +import-pending-interrupt+)
+    (emit-label skip)))
+
+;;; The control-stack guard alone, for the frames local calls allocate
+;;; (ALLOCATE-FRAME): a self-recursive local function never passes an
+;;; entry point.
+(defun emit-stack-check ()
+  (let ((skip (gen-label)))
+    (inst global.get +thread-global+)
+    (inst i32.load +thread-control-stack-limit-offset+)
+    (load-reg csp-tn)
+    (inst i32.ge_u)                     ; limit >= CSP: fine
     (inst jump-if skip)
     (inst call +import-pending-interrupt+)
     (emit-label skip)))
@@ -182,6 +202,7 @@
     (move res csp-tn)
     (store-reg csp-tn
       (emit-reg-plus csp-tn (* n-word-bytes (sb-allocated-size 'control-stack))))
+    (emit-stack-check)
     (when (ir2-environment-number-stack-p callee)
       (store-reg nsp-tn
         (emit-reg-plus nsp-tn (- (bytes-needed-for-non-descriptor-stack-frame))))

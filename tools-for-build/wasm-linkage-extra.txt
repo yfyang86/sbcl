@@ -15,6 +15,11 @@ wasm_run_process
 # wasi-libc's environment (POSIX-ENVIRON; RUN-PROGRAM passes it to children):
 # a variable, listed as such
 environ data
+# tests/exhaust.impure.lisp sets it; a variable
+lose_on_corruption_p data
+# tests/timer.impure.lisp calls them (no-op stubs, wasm-interrupt.c)
+check_deferrables_blocked_or_lose
+check_deferrables_unblocked_or_lose
 # the save-time passes, callable from Lisp for debugging (Sprints/Sprint9)
 prepare_readonly_space
 verify_heap
@@ -58,3 +63,5 @@ brothertree_delete
 # runtime functions the tests call (bsearch.pure.lisp)
 bsearch_lesseql_uword
 bsearch_greatereql_uword
+# the canary check (SBCL_WASM_CANARY=1; wasi-mman.c), a debugging aid
+wasm_check_canaries

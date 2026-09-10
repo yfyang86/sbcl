@@ -245,6 +245,15 @@
       (inst i32.const (* binding-size n-word-bytes))
       (inst i32.add))
     (store-binding-stack-pointer bsp-temp)
+    ;; the binding-stack guard (see +THREAD-BINDING-STACK-LIMIT-OFFSET+)
+    (let ((skip (gen-label)))
+      (inst global.get +thread-global+)
+      (inst i32.load +thread-binding-stack-limit-offset+)
+      (load-reg bsp-temp)
+      (inst i32.ge_u)                   ; limit >= BSP: fine
+      (inst jump-if skip)
+      (inst call +import-pending-interrupt+)
+      (emit-label skip))
     (storew temp bsp-temp (- binding-value-slot binding-size))
     (storew symbol bsp-temp (- binding-symbol-slot binding-size))
     ;; no thread-local storage here: the value goes into the symbol

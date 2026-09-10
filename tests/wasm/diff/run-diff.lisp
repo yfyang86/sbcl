@@ -13,6 +13,10 @@
 
 (defvar *diff-functions* (make-hash-table :test 'equal))
 
+;;; The linkage cells of the mini-runtime (tests/wasm/minirt.c, reset):
+;;; the C shadow-stack helpers the catch and unwind blocks call.
+(defparameter *minirt-cells* '(("c_stack_save" . #x100) ("c_stack_restore" . #x104)))
+
 (defun target-word (value)
   "The raw 32-bit register word representing VALUE on the target."
   (typecase value
@@ -116,7 +120,7 @@
     (let ((*wasm-assembly-hook*
             (lambda (functions asm-routines)
               (let ((m (make-lisp-module :asm-routines asm-routines)))
-                (add-lisp-functions m functions :export t)
+                (add-lisp-functions m functions :export t :foreign-cells *minirt-cells*)
                 (write-wasm-module m (format nil "~A/asm.wasm" out-dir))))))
       (call-in-target-mode
        (lambda ()
@@ -136,7 +140,7 @@
                    (declare (ignore unimplemented))
                    (let ((m (make-lisp-module :asm-routines asm-routines))
                          (file (format nil "~A.wasm" (string-downcase name))))
-                     (add-lisp-functions m functions)
+                     (add-lisp-functions m functions :foreign-cells *minirt-cells*)
                      (write-wasm-module m (format nil "~A/~A" out-dir file))
                      (incf n-modules)
                      (dolist (args arg-lists)

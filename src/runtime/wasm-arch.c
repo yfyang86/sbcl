@@ -151,6 +151,8 @@ static uint32_t function_entry_index(lispobj fun, lispobj *lexenv, lispobj *simp
 extern unsigned char *gc_card_mark;
 extern sword_t gc_card_table_mask;
 
+void wasm_watch_check(const char *where);
+static void init_stack_limits(struct thread *th);
 lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
 {
     struct thread *th = get_sb_vm_thread();
@@ -159,6 +161,8 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_TABLE) = (uint32_t)(uintptr_t)gc_card_mark;
     *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_MASK) = (uint32_t)gc_card_table_mask;
     wasm_check_stack("call_into_lisp");
+    wasm_watch_check("call_into_lisp entry");
+    init_stack_limits(th);
     lispobj lexenv, simple_fun;
     uint32_t index = function_entry_index(fun, &lexenv, &simple_fun);
     /* A fresh frame at the current top of the control stack: the first
@@ -191,6 +195,7 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     lispobj result = (flag == 0 || r[reg_NARGS] != 0) ? r[reg_A0] : NIL;
     r[reg_CSP] = (uint32_t)(uintptr_t)frame;
     wasm_check_stack("call_into_lisp return");
+    wasm_watch_check("call_into_lisp return");
     return result;
 }
 
@@ -267,6 +272,27 @@ static void describe_wasm_internal_error(os_context_t *context)
     fflush(stderr);
 }
 
+/* SBCL_WASM_WATCH=HEXADDR: report where the word at that address changes,
+ * checked at the runtime's entry points (a debugging aid, Sprints/Sprint11). */
+void wasm_watch_check(const char *where)
+{
+    static int enabled = -1;
+    static uint32_t *addr;
+    static uint32_t last;
+    if (enabled < 0) {
+        const char *env = getenv("SBCL_WASM_WATCH");
+        enabled = env != 0;
+        if (enabled) { addr = (uint32_t*)(uintptr_t)strtoul(env, 0, 16); last = *addr; }
+    }
+    if (!enabled || *addr == last) return;
+    uint32_t *r = lisp_register_area;
+    fprintf(stderr, "; WATCH %p changed %#x -> %#x at %s: CSP %#x CFP %#x NSP %#x CODE %#x A0 %#x\n",
+            addr, (unsigned)last, (unsigned)*addr, where,
+            (unsigned)r[reg_CSP], (unsigned)r[reg_CFP], (unsigned)r[reg_NSP],
+            (unsigned)r[reg_CODE], (unsigned)r[reg_A0]);
+    last = *addr;
+}
+
 /* The internal_error import (EMIT-ERROR-BREAK, macros.lisp): compiled
  * code has stored the SC+OFFSET words of the arguments into the register
  * area's error-argument area. This is the whole of interrupt_internal_error
@@ -281,6 +307,7 @@ __attribute__((export_name("internal_error")))
 void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
 {
     wasm_check_stack("internal error");
+    wasm_watch_check("internal error entry");
     struct thread *th = get_sb_vm_thread();
     os_context_t context;
     uint32_t *args = (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
@@ -311,7 +338,9 @@ void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
     bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
     nth_interrupt_context(index, th) = &context;
     DX_ALLOC_SAP(context_sap, &context);
+    wasm_watch_check("internal error before the handler");
     funcall2(StaticSymbolFunction(INTERNAL_ERROR), context_sap, NIL);
+    wasm_watch_check("internal error after the handler");
     nth_interrupt_context(index, th) = NULL;
     unbind(th);
     describe_wasm_internal_error(&context);
@@ -327,6 +356,99 @@ void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
 static uint32_t *interrupt_pending_word(void)
 {
     return (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_INTERRUPT_PENDING);
+}
+extern int64_t wasm_timer_deadline; /* wrap.c */
+
+/*** The stack guards: explicit limits instead of guard pages (design
+ * 2.x). Compiled code compares CSP with the control-stack limit word
+ * at every frame allocation (EMIT-STACK-CHECK, call.lisp) and the
+ * binding stack pointer with the binding-stack limit word at every
+ * binding (DYNBIND, cell.lisp); a frame or binding past the limit
+ * calls pending_interrupt, which lands in check_stack_guards. As with
+ * the guard pages of the other targets, hitting a guard lowers it (the
+ * limit moves to the stack's hard end so that the handler has room),
+ * calls the Lisp error function, and the guard is restored once the
+ * stack has shrunk back below the return zone; the GUARD bit of the
+ * interrupt-pending word keeps every entry polling until then. */
+#define CONTROL_STACK_GUARD_BYTES (64 * 1024)
+#define CONTROL_STACK_RETURN_BYTES (16 * 1024)
+#define BINDING_STACK_GUARD_BYTES (16 * 1024)
+#define BINDING_STACK_RETURN_BYTES (4 * 1024)
+static uint32_t *control_stack_limit_word(void)
+{
+    return (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_CONTROL_STACK_LIMIT);
+}
+static uint32_t *binding_stack_limit_word(void)
+{
+    return (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_BINDING_STACK_LIMIT);
+}
+static uint32_t control_stack_soft_limit(struct thread *th)
+{
+    return (uint32_t)(uintptr_t)th->control_stack_end - CONTROL_STACK_GUARD_BYTES;
+}
+static uint32_t binding_stack_soft_limit(struct thread *th)
+{
+    return (uint32_t)(uintptr_t)th->binding_stack_start + BINDING_STACK_SIZE - BINDING_STACK_GUARD_BYTES;
+}
+static int control_guard_lowered, binding_guard_lowered;
+static void init_stack_limits(struct thread *th)
+{
+    if (!*control_stack_limit_word()) *control_stack_limit_word() = control_stack_soft_limit(th);
+    if (!*binding_stack_limit_word()) *binding_stack_limit_word() = binding_stack_soft_limit(th);
+}
+/* Call a Lisp function from the safe point (CONTROL-STACK-EXHAUSTED-ERROR
+ * or BINDING-STACK-EXHAUSTED-ERROR, which signal the STORAGE-CONDITION;
+ * RUN-EXPIRED-TIMERS) with the registers saved as an interrupt context,
+ * as the collector is called from the safe point: the function may leave
+ * by a non-local exit through this frame, or return here. */
+static void call_lisp_at_safe_point(struct thread *th, lispobj fun)
+{
+    os_context_t context;
+    memcpy(context.regs, lisp_register_area, sizeof context.regs);
+    context.pc = 0;
+    int index = fixnum_value(read_TLS(FREE_INTERRUPT_CONTEXT_INDEX, th));
+    if (index >= MAX_INTERRUPTS)
+        lose("maximum interrupt nesting depth (%d) exceeded", MAX_INTERRUPTS);
+    bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
+    nth_interrupt_context(index, th) = &context;
+    funcall0(fun);
+    nth_interrupt_context(index, th) = NULL;
+    unbind(th);
+    memcpy(lisp_register_area, context.regs, sizeof context.regs);
+}
+static void check_stack_guards(struct thread *th, uint32_t *word)
+{
+    uint32_t csp = lisp_register_area[reg_CSP];
+    uint32_t *limit = control_stack_limit_word();
+    if (csp > *limit) {
+        if (control_guard_lowered)
+            lose("Control stack exhausted, fault in the guard handler: CSP %#x, the stack ends at %p",
+                 (unsigned)csp, th->control_stack_end);
+        control_guard_lowered = 1;
+        *limit = (uint32_t)(uintptr_t)th->control_stack_end - 4 * N_WORD_BYTES;
+        *word |= WASM_PENDING_GUARD;
+        call_lisp_at_safe_point(th, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR));
+    } else if (control_guard_lowered
+               && csp < control_stack_soft_limit(th) - CONTROL_STACK_RETURN_BYTES) {
+        control_guard_lowered = 0;
+        *limit = control_stack_soft_limit(th);
+        if (!binding_guard_lowered) *word &= ~(uint32_t)WASM_PENDING_GUARD;
+    }
+    uint32_t bsp = (uint32_t)(uintptr_t)get_binding_stack_pointer(th);
+    limit = binding_stack_limit_word();
+    if (bsp > *limit) {
+        if (binding_guard_lowered)
+            lose("Binding stack exhausted, fault in the guard handler: BSP %#x", (unsigned)bsp);
+        binding_guard_lowered = 1;
+        *limit = binding_stack_soft_limit(th) + BINDING_STACK_GUARD_BYTES - 4 * N_WORD_BYTES;
+        *word |= WASM_PENDING_GUARD;
+        call_lisp_at_safe_point(th, StaticSymbolFunction(BINDING_STACK_EXHAUSTED_ERROR));
+    } else if (binding_guard_lowered
+               && bsp < binding_stack_soft_limit(th) - BINDING_STACK_RETURN_BYTES) {
+        binding_guard_lowered = 0;
+        *limit = binding_stack_soft_limit(th);
+        if (!control_guard_lowered) *word &= ~(uint32_t)WASM_PENDING_GUARD;
+    }
 }
 /* SBCL_WASM_CHECK_STACK=1: watch the bottom of the control stack (the
  * toplevel frames, live for the whole session) and report the first
@@ -381,6 +503,7 @@ void wasm_pending_interrupt(void)
                 lisp_register_area[reg_OCFP], lisp_register_area[reg_A0],
                 lisp_register_area[reg_A1]);
     }
+    check_stack_guards(th, word);
     /* A GC is pending (trigger_gc, gengc.inc, through
      * set_pseudo_atomic_interrupted): a safe point is where it runs, as
      * the end of a pseudo-atomic section is elsewhere; every live Lisp
@@ -423,6 +546,43 @@ void wasm_pending_interrupt(void)
         *word &= ~(uint32_t)WASM_PENDING_INTERRUPT;
         fprintf(stderr, "; interrupt request seen at a safe point (delivery to Lisp is not implemented yet)\n");
     }
+    /* The timer (sb_setitimer, wrap.c): RUN-EXPIRED-TIMERS now, or, with
+     * interrupts disabled, at the exit of the WITHOUT-INTERRUPTS (its
+     * RECEIVE-PENDING-INTERRUPT lands here; the bit stays set until
+     * then, so every entry polls), as the SIGALRM handler is deferred. */
+    if (*word & WASM_PENDING_TIMER) {
+        if (read_TLS(INTERRUPTS_ENABLED, th) == NIL) {
+            write_TLS(INTERRUPT_PENDING, LISP_T, th);
+        } else {
+            *word &= ~(uint32_t)WASM_PENDING_TIMER;
+            write_TLS(INTERRUPT_PENDING, NIL, th);
+            wasm_timer_deadline = 0;
+            /* a static symbol, not a static fdefn: through the symbol's fdefn */
+            call_lisp_at_safe_point(th, symbol_function(SYMBOL(RUN_EXPIRED_TIMERS)));
+        }
+    }
+}
+
+/*** timers (sb_setitimer, wrap.c) ***/
+
+/* The host ticks the epoch when the timer is due (usec 0: no timer), and
+ * its epoch callback sets the TIMER bit for the safe point. */
+__attribute__((import_module("sbcl_host"), import_name("set_timer")))
+void sbcl_host_set_timer(int64_t usec);
+
+void wasm_set_host_timer(int64_t usec)
+{
+    sbcl_host_set_timer(usec);
+}
+
+/* The timer expired during a sleep (sb_nanosleep): run it from here, a
+ * foreign call being a safe point as well (the registers are in the
+ * area, the frame on the control stack). */
+void wasm_timer_expired(void)
+{
+    wasm_timer_deadline = 0;
+    *interrupt_pending_word() |= WASM_PENDING_TIMER;
+    wasm_pending_interrupt();
 }
 
 /* The allocation entry points compiled code calls (alloc.c), wrapped so
@@ -530,6 +690,7 @@ void wasm_save_core_module(const char *filename)
 int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
 {
     wasm_check_stack("before instantiate");
+    wasm_watch_check("instantiate");
     /* SBCL_WASM_DUMP_INSTALLED=1: write every module installed at run
      * time to obj/wasm-build/installed-BASE.wasm (a debugging aid) */
     if (getenv("SBCL_WASM_DUMP_INSTALLED")) {

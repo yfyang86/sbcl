@@ -629,6 +629,29 @@ prepare_to_save(char *filename, bool prepend_runtime, void **runtime_bytes,
     }
 
     if (prepend_runtime) {
+#ifdef LISP_FEATURE_WASM
+        /* The module cannot be a program of the host's system; the
+         * "executable" is a shell script that runs the host and the
+         * module that saved it with the script itself as argv[0], which
+         * the runtime then searches for the embedded core (main). The
+         * host names both in the environment. */
+        const char *host = getenv("SBCL_WASM_HOST");
+        const char *module = getenv("SBCL_WASM_RUNTIME");
+        if (!host || !*host || !module || !*module) {
+            fprintf(stderr, "Unable to name the host and the module for an executable core.\n");
+            return NULL;
+        }
+        char *script = checked_malloc(strlen(host) + strlen(module) + 512);
+        sprintf(script,
+                "#!/bin/sh\n"
+                "# An SBCL WebAssembly executable core: this file is the core, run by the\n"
+                "# host and module that saved it (SBCL_WASM_HOST and SBCL_WASM_RUNTIME\n"
+                "# override them).\n"
+                "SBCL_WASM_ARGV0=\"$0\" exec \"${SBCL_WASM_HOST:-%s}\" \"${SBCL_WASM_RUNTIME:-%s}\" \"$@\"\n",
+                host, module);
+        *runtime_bytes = script;
+        *runtime_size = strlen(script);
+#else
         if (!sbcl_runtime) {
             fprintf(stderr, "Unable to get default runtime path.\n");
             return NULL;
@@ -637,6 +660,7 @@ prepare_to_save(char *filename, bool prepend_runtime, void **runtime_bytes,
 
         if (*runtime_bytes == NULL)
             return 0;
+#endif
     }
 
     file = open_core_for_saving(filename);

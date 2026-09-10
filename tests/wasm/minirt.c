@@ -38,8 +38,18 @@ __attribute__((export_name("region_start"))) uint32_t region_start(void) {
 /* the GC card table the store barrier writes: one card, mask 0
  * (LISP_REGISTER_AREA_CARD_TABLE / _CARD_MASK in wasm-lispregs.h) */
 static uint8_t card_mark[16] __attribute__((aligned(16)));
+/* The runtime's C shadow-stack helpers (wasm-stack.S), which the catch
+ * and unwind blocks call through linkage cells: the rig resolves the
+ * :foreign fixups to cells at 0x100 and 0x104 (the page below the data,
+ * unused), filled here with the table indices. There are no C frames
+ * to restore in the mini-runtime, so they do nothing. */
+static uint32_t c_stack_save(void) { return 0; }
+static void c_stack_restore(uint32_t sp) { (void)sp; }
+
 __attribute__((export_name("reset"))) void reset(void) {
     memset(thread_area, 0, sizeof thread_area);
+    ((uint32_t*)0x100)[0] = (uint32_t)(uintptr_t)c_stack_save;
+    ((uint32_t*)0x104)[0] = (uint32_t)(uintptr_t)c_stack_restore;
     thread_area[460 / 4] = (uint32_t)(uintptr_t)card_mark;
     thread_area[464 / 4] = 0;
     region_free = (uint32_t)(uintptr_t)region;

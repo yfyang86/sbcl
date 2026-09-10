@@ -143,6 +143,13 @@ Symbols are entered into the linkage-table if they aren't there already."
   "Returns a SAP corresponding to the foreign symbol. DATAP must be true if the
 symbol designates a variable. May enter the symbol into the linkage-table."
   (let ((addr (foreign-symbol-address symbol datap)))
+    ;; FOREIGN-SYMBOL-ADDRESS already returns the real answer on wasm
+    ;; (the cell's content), so a second dereference would read the
+    ;; variable's value as an address: EXTERN-ALIEN through the
+    ;; evaluator (SIMPLE-EVAL-IN-LEXENV calls this function) then
+    ;; disagreed with compiled code (the FOREIGN-SYMBOL-DATAREF-SAP VOP).
+    #+wasm (int-sap addr)
+    #-wasm
     (if datap ; return the real answer, not an address in the linkage table
         (sap-ref-sap (int-sap addr) 0)
         (int-sap addr))))

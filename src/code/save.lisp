@@ -340,6 +340,8 @@ sufficiently motivated to do lengthy fixes."
 (defun deinit ()
   (call-hooks "save" *save-hooks*)
   #+win32 (itimer-emulation-deinit)
+  ;; the one module of the code loaded at run time (wasm-vm.lisp)
+  #+wasm (sb-vm::wasm-merge-loaded-modules)
   #+sb-thread
   (let (error)
     (with-system-mutex (sb-thread::*make-thread-lock*)

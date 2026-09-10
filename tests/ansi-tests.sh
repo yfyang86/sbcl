@@ -70,10 +70,7 @@ rm -fr sandbox/scratch
          ;; the WebAssembly port (doc/wasm-port/05-testing.md; Sprints/Sprint10/triage.md):
          ;; no user database (FILE-AUTHOR), LISTEN on a file needs poll,
          ;; the debugger is disabled in the test process, *stderr* is a file
-         #+wasm (list "FILE-AUTHOR.1" "FILE-AUTHOR.2" "FILE-AUTHOR.3" "FILE-AUTHOR.4"
-                      "FILE-AUTHOR.5" "FILE-AUTHOR.6" "FILE-AUTHOR.7"
-                      "LISTEN.7" "FILE-LENGTH.ERROR.3"
-                      "INVOKE-DEBUGGER.1" "INVOKE-DEBUGGER.ERROR.3"
+         #+wasm (list "INVOKE-DEBUGGER.1" "INVOKE-DEBUGGER.ERROR.3"
                       "INVOKE-DEBUGGER.ERROR.4" "INVOKE-DEBUGGER.ERROR.5")
          #+(or riscv loongarch64) (list "LOOP.13.8")
          #-sb-unicode (list "MISC.638")

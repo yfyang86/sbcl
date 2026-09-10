@@ -669,6 +669,28 @@ initialize_lisp(int argc, char *argv[], char *envp[])
         }
     }
 
+#ifdef LISP_FEATURE_WASM
+    /* an executable core: argv[0] is its launcher (SBCL_WASM_ARGV0 from
+     * the host), a script with the core appended (prepare_to_save) */
+    if (!core && argv[0] && strcmp(argv[0], sbcl_runtime)) {
+        /* before os_init's chdir: a relative name is resolved by hand */
+        const char *pwd = getenv("PWD");
+        char *launcher;
+        if (argv[0][0] == '/' || !pwd || !*pwd) {
+            launcher = strdup(argv[0]);
+        } else {
+            launcher = checked_malloc(strlen(pwd) + strlen(argv[0]) + 2);
+            sprintf(launcher, "%s/%s", pwd, argv[0]);
+        }
+        os_vm_offset_t offset = search_for_embedded_core(launcher, &memsize_options);
+        if (offset != -1) {
+            core = launcher;
+            embedded_core_offset = offset;
+        } else {
+            free(launcher);
+        }
+    }
+#endif
     if (!core) {
         char *exe_path = search_for_executable(argv[0]);
         if (exe_path && !(sbcl_runtime && strcmp(sbcl_runtime, exe_path) == 0)) {

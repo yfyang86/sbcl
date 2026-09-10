@@ -46,7 +46,12 @@ void os_init()
 static char *runtime_path;
 int os_preinit(char *argv[], char *envp[])
 {
-    const char *argv0 = argv && argv[0] ? argv[0] : "sbcl.wasm";
+    /* the host names the module it runs; argv[0] may be the launcher of an
+     * executable core (SBCL_WASM_ARGV0), which main() then searches for
+     * the embedded core */
+    const char *from_host = getenv("SBCL_WASM_RUNTIME");
+    const char *argv0 = from_host && *from_host ? from_host
+                        : argv && argv[0] ? argv[0] : "sbcl.wasm";
     const char *pwd = getenv("PWD");
     if (argv0[0] == '/' || !pwd || !*pwd) {
         runtime_path = strdup(argv0);

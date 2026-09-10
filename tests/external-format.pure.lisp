@@ -1320,7 +1320,9 @@
     (with-open-file (s *test-path* :external-format :utf-32be)
       (assert (string= " ???? " (read-line s))))))
 
-(with-test (:name :invalid-external-format)
+(with-test (:name :invalid-external-format
+            ;; the WebAssembly port: no-fork: run-program :input :stream
+            :skipped-on :wasm)
   (labels ((test-error (e)
              (assert (typep e 'error))
              (unless (equal "Undefined external-format: :BAD-FORMAT"

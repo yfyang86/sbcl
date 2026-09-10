@@ -250,13 +250,13 @@ second afterwards.
   tests that cannot run exit early when `subr.sh` has set `SBCL_WASM`.
   `:no-float-traps` is on `*features*` while a test file runs.
 - The kernel's mapping limit: every component compiled at run time is a
-  module of its own, about four memory mappings in the host, and a
-  saved core starts with its 7,000 modules; a file that compiles more
-  than about 8,000 components (`arith-slow.pure.lisp`,
-  `cmp-combinations.pure.lisp`, `seq.impure.lisp`) exhausts the default
-  `vm.max_map_count` of 65,530 ("unable to make memory executable").
-  Raise it for the suites (`sysctl -w vm.max_map_count=1048576`) until
-  the saved modules are merged.
+  module of its own, about four memory mappings in the host (a saved
+  core starts with one module holding all of them, see below); a file
+  that compiles more than about 8,000 components
+  (`arith-slow.pure.lisp`, `cmp-combinations.pure.lisp`,
+  `seq.impure.lisp`) exhausts the default `vm.max_map_count` of 65,530
+  ("unable to make memory executable"). Raise it for the suites
+  (`sysctl -w vm.max_map_count=1048576`).
 - The ANSI suite: `tests/ansi-tests.sh` (`./build-wasm.sh ansi`; the
   script checks out `tests/ansi-test`) hands over to
   `tests/wasm-ansi-tests.sh`: the suite is loaded once into a saved
@@ -277,8 +277,27 @@ second afterwards.
   `obj/sbcl-home/contrib` (the blocklist is in `build-wasm.sh`);
   `(require :sb-md5)` and the others work in the saved core.
 - `save-lisp-and-die` writes the core module beside the core under the
-  core's name (`foo.core`, `foo-core.wasm`); `:executable t` is not
-  supported yet (the file is not a program the host can run).
+  core's name (`foo.core`, `foo-core.wasm`), and lowers every function
+  compiled or loaded at run time into one module saved in the core
+  (`*wasm-loaded-modules*`), which the core instantiates when it starts.
+  `:executable t` writes a launcher: a `#!/bin/sh` script that runs the
+  host and the module that saved it (`SBCL_WASM_HOST`,
+  `SBCL_WASM_RUNTIME`, which the host exports to the guest; set them to
+  relocate), followed by the core; `*posix-argv*` names the launcher.
+  WASI cannot `chmod`, so the launcher needs `chmod +x` before it runs.
+- Stack exhaustion signals `storage-condition` as elsewhere: there are
+  no guard pages, the compiled code compares the stack pointers with
+  limits in the register area at every frame allocation and binding
+  (`check_stack_guards`, wasm-arch.c). The Wasm stack of the host is
+  128 MB; a control stack (`--control-stack-size`) beyond about 30 MB
+  would exhaust it first, with an uncatchable trap.
+- Timers (`sb-ext:make-timer`, `with-timeout`, deadlines) work: the
+  runtime keeps the `setitimer` deadline and the host ticks the epoch
+  when it is due (`sbcl_host.set_timer`), setting the timer bit of the
+  interrupt-pending word; the next safe point runs the expired timers
+  (deferred under `without-interrupts`), and a sleep is cut at the
+  deadline. Nothing interrupts a call the host blocks in (`run-program`
+  waiting for its child).
 - A call to an alien function the runtime does not define signals
   `undefined-alien-function-error` with the name, whatever the declared
   signature (the linkage table maps such names to a guard the compiled
@@ -307,8 +326,10 @@ second afterwards.
   a code offset as text with binary offsets and marks the instruction.
 - **The entry trace** (`SBCL_WASM_TRACE_ENTRIES=1`): every XEP is a safe
   point that calls the runtime when the register area's interrupt-pending
-  word is set; the runtime prints each entry when the word is 2. Local
-  functions (no XEP) do not appear; tail calls replace frames.
+  word is set, and so is every backward branch between blocks (a loop's
+  back edge); the runtime prints each such point when the word is 2 (an
+  "enter" line per loop iteration as well). Local functions (no XEP)
+  appear only through their loops; tail calls replace frames.
 - **Internal errors** enter the Lisp condition system (`internal-error`
   with a context that snapshots the register file). Before
   `internal_errors_enabled` is set by cold-init, or if the handler
@@ -317,6 +338,12 @@ second afterwards.
   name, then stops; `SBCL_WASM_TRACE_ERRORS=1` prints the same report
   for every error. Every trap report from the host also dumps the first
   words of the frames at OCFP and CFP.
+- **Stray writes.** `SBCL_WASM_CANARY=1` places 4 MB canary regions
+  before and after the thread block and checks them, and the null page
+  (0..0x3ff), after every collection (`wasm_check_canaries`, callable
+  from Lisp too); `SBCL_WASM_WATCH=HEXADDR` reports the runtime entry
+  point (internal error, safe point, `call_into_lisp`, instantiate) at
+  which the word at that address changes, with the frame registers.
 - **Foreign calls** trap with "indirect call type mismatch" when the
   Lisp declaration's signature differs from the C function's (`void`
   versus a returned pointer, 32 versus 64-bit integers): check the
@@ -325,7 +352,8 @@ second afterwards.
 - Register file layout: `src/runtime/wasm-lispregs.h` (NARGS, CSP, CFP,
   OCFP, NFP, NSP, LEXENV, CODE, LIP, CFUNC, A0–A3, L0–L5, NL0–NL7, TMP,
   RA; then floats, error arguments, unwind target, float modes, the
-  interrupt-pending word).
+  interrupt-pending word, the card table, the last foreign cell, the
+  stack limits).
 
 ## 7. Source map
 
