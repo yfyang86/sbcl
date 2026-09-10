@@ -18,7 +18,8 @@
   (ecase style
     ((:raw :none)
      (values
-      `((inst call (make-fixup ',name :assembly-routine))
+      `((emit-lisp-call-args)
+        (inst call (make-fixup ',name :assembly-routine))
         (inst drop))
       `()))))
 

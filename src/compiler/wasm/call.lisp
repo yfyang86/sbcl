@@ -481,7 +481,14 @@
 ;;; table entry is already in the register FUNCTION and CODE holds the
 ;;; function object (a named call: the XEP finds the simple-fun in a
 ;;; closure itself, and the closure trampoline finds it in the fdefn).
+(defun emit-lisp-call-args ()
+  "Push the parameters of the Lisp function type: NARGS and A0..A3."
+  (load-reg nargs-tn)
+  (dolist (tn *register-arg-tns*)
+    (load-reg tn)))
+
 (defun emit-full-call (function tail-p &key index)
+  (emit-lisp-call-args)
   (cond (index
          (load-reg function))
         (t
@@ -775,7 +782,7 @@
     (move csp-tn cfp-tn)
     (move cfp-tn old-fp)
     (inst i32.const 0)
-    (inst return +lisp-return-flush-mask+)))
+    (inst return +lisp-return-single-flush-mask+)))
 
 ;;; Do unknown-values return of a fixed number of values. The VALUES are
 ;;; required to be set up in the standard passing locations. NVALS is the
@@ -889,7 +896,7 @@
       (move csp-tn cfp-tn)
       (move cfp-tn old-fp)
       (inst i32.const 0)
-      (inst return +lisp-return-flush-mask+))))
+      (inst return +lisp-return-single-flush-mask+))))
 
 ;;;; XEP hackery:
 

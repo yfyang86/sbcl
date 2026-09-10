@@ -67,13 +67,100 @@ prologue of 15 loads (it touches 15 registers), a body of locals, and
 after it, 15 stores before the `return` — which is where the tuning of
 section 2 starts.
 
-## 2. Tuning the flush and reload sets
+## 2. Tuning the flush and reload sets, and inline allocation
 
-(filled in after the first measurement)
+The first build (every flush point moving the whole used set) measured
+1.27 on cl-bench's geometric mean against Sprint 12's core (63
+benchmarks, a 1 GB heap — section 4 says why): the array and bignum
+loops gained 2–4×, the call-heavy kernels lost 10–20% (`fib` 0.79),
+as the shape of the code predicted. Three refinements, each a mask on
+a note:
+
+- A full call (`call_indirect` and `return_call_indirect` with the
+  Lisp function type, index 0 in every module) writes back what the
+  convention passes (the frame registers, RA; NARGS and A0..A3 until
+  section 3 made them parameters) and reads back what the callee
+  returns (A0..A3, NARGS, CSP, CFP, OCFP; NFP and NSP for the number
+  stack). Nothing else is live across a full call: `pack` spilled it.
+  The unknown-values `return` VOPs pass the same set to `return`; a
+  known-values return and the local calls, whose values sit in
+  whatever registers the caller chose, keep the whole set.
+- The allocation entries get CSP and CFP only (the collector's stack
+  scan, the heap-exhaustion error's frame), not the eight frame
+  registers.
+- Allocation itself moved inline: the free pointer of the main
+  thread's mixed region sits at a fixed address in static space
+  (`gencgc-alloc-region.h`; lists use the same region, there being no
+  cons region on this target), so `emit-allocate` bumps it in place
+  and calls the runtime only when the request does not fit — the
+  native backends' scheme, with the runtime's `lisp_alloc` opening
+  the next region and setting the collection pending. The runtime
+  entry also cost a `getenv` per allocation (the allocation trace's
+  switch, cached now).
+
+Measured against Sprint 12's core, on the same 63 benchmarks:
+
+| Build | Geometric mean | `fib` | `tak` | `boyer` | `deriv` | `3d-arrays` |
+|---|---|---|---|---|---|---|
+| the cache, every point the whole set | 1.27 | 0.79 | 1.02 | — | — | 4.1 |
+| the masks | 1.35 | 1.13 | 1.02 | 1.42 | 0.93 | 4.07 |
+| inline allocation | 1.49 | 1.09 | 1.22 | 1.61 | 1.56 | — |
+
+The one loss that stays is `clos-defmethod` (0.58) and `clos-defclass`
+(0.75): they compile methods at run time, and every function compiled
+at run time is a module the engine compiles; the cached code is a
+third bigger (the module of the cold core: 34 → 45 MB after
+`wasm-opt`), and the engine's compile time goes with it.
 
 ## 3. The calling convention
 
-(the plan's second half: arguments as parameters, `A0` as the result)
+The plan's second half: NARGS and A0..A3 are the parameters of the
+Lisp function type, `(i32 i32 i32 i32 i32) -> (i32)`, the result
+still the values flag. The register cache made this a renumbering:
+the locals of those five registers are the first five (`register-local`
+in insts.lisp maps a register to its local), which are the parameters
+of every Lisp function, so a callee's prologue leaves them alone
+(`prologue-reload-mask`) and a caller passes its own five locals
+(`emit-lisp-call-args` in call.lisp for the full calls and the
+assembly-routine calls, `emit-lisp-args` in the assembler for the
+local calls). The five still exist in the area for the runtime — the
+entry trace, `call_into_lisp`'s result — and are written there at
+every flush point that moves the whole set; a full call's flush set
+drops them. `call_into_lisp` passes them as C arguments; the level-1
+rig calls its functions with them. `A0` as a Wasm result stays out:
+the C runtime cannot receive a multi-value result through a function
+pointer, and a single result can carry either the flag or `A0`, not
+both; a trampoline in the core module would be the way, for a store
+and a load per call.
+
+The first build with the parameters passed levels 0 and 1 (once the
+level-1 rig was rebuilt: `build-wasm.sh host` builds it now, with the
+Wasmtime host) and died in cold init, in `hashset-insert-if-absent`
+with a NIL key, its copier being `identity`. The entry trace put the
+NIL where `identity` returned: `identity` returns its argument as it
+came, so no `reg.get` or `reg.set` records A0, A0 is not in its
+register mask, and its `return` wrote nothing to the area, from which
+the caller reloads A0 — the NIL that `hashset-find` had just returned
+there. The old convention hid this: the caller's flush before the call
+put the argument in the area. A first repair, a `return` writing the
+parameter registers of its mask from their locals regardless of use,
+broke level 1's `more-arg-values` the other way round: its body
+function gets the sum in A0 from the loop function's known return —
+through the area — and never touches A0 either, so the forced store
+wrote the stale parameter over the callee's value. A parameter
+register a function does not touch has its truth in the local at
+entry and in the area after a callee returns, and the function
+assembler cannot tell which a value came from. The rule that holds:
+the five parameter registers are in every Lisp function's mask of
+uses (`lower-functions`), flushed at every flush point and reloaded at
+every reload point like any register the function reads, with the
+prologue the one exception (they arrive as parameters). A full call's
+flush still leaves them out (the callee takes them as parameters), a
+`return` writes the value registers (`+lisp-return-flush-mask+`; a
+single value, `+lisp-return-single-flush-mask+`, A0 and the stack
+registers), and a caller reloads them after the call. The cost: a
+function that leaves A2 and A3 alone stores and loads them anyway at
+its local calls and safe points, two words each way.
 
 ## 4. The build and the measurements
 

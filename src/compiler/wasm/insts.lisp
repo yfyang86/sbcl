@@ -223,15 +223,18 @@
   "CSP and CFP.")
 ;;; A full call (CALL_INDIRECT with the Lisp function type, index 0 in
 ;;; every module) reads only what the convention passes (call.lisp): the
-;;; frame registers, A0..A3 and RA; the values live across the call are
-;;; on the stack (the call VOPs are :SAVE-P T). It returns A0..A3, NARGS,
-;;; CSP, CFP and OCFP; NFP and NSP are included on the way back for the
-;;; number stack.
-(defconstant +lisp-call-flush-mask+ #x20003CFF)
+;;; frame registers and RA through the area, NARGS and A0..A3 as the
+;;; parameters; the values live across the call are on the stack (the
+;;; call VOPs are :SAVE-P T). It returns A0..A3, NARGS, CSP, CFP and
+;;; OCFP; NFP and NSP are included on the way back for the number stack.
+(defconstant +lisp-call-flush-mask+ #x200000FE)
 (defconstant +lisp-call-reload-mask+ #x3C3F)
 (defconstant sb-vm::+lisp-return-flush-mask+ #x3C3F
   "What a full call's caller reads after the call: the RETURN VOPs of
 the unknown-values convention pass it to RETURN.")
+(defconstant sb-vm::+lisp-return-single-flush-mask+ #x43E
+  "The same for a single value: the stack registers and A0 (the caller
+reads NARGS only when the values flag says so).")
 (defun note-flush (segment &optional mask)
   (note-control segment :flush nil mask))
 (defun note-reload (segment &optional mask)
@@ -313,6 +316,19 @@ the unknown-values convention pass it to RETURN.")
 
 (defconstant +register-locals-base+ 0)
 
+;;; The local of register N. The first five locals are the parameters of
+;;; the Lisp function type (+LISP-FUNCTION-PARAMS+, func-asm.lisp): NARGS
+;;; and A0..A3 (registers 0 and 10..13, wasm-lispregs.h) arrive as
+;;; parameters, so their locals come first; the other registers keep
+;;; their order after them.
+(declaim (inline register-local))
+(defun register-local (n)
+  (+ +register-locals-base+
+     (cond ((= n 0) 0)
+           ((<= 10 n 13) (- n 9))
+           ((< n 10) (+ n 4))
+           (t n))))
+
 (defun note-register-use (segment n)
   (push (make-control-note :reg-use (sb-assem::segment-current-index segment) nil n)
         (sb-assem::segment-backend-data segment)))
@@ -320,11 +336,11 @@ the unknown-values convention pass it to RETURN.")
 (define-instruction reg.get (segment n)
   (:emitter (note-register-use segment n)
             (emit-byte segment #x20)
-            (emit-uleb128 segment (+ +register-locals-base+ n))))
+            (emit-uleb128 segment (register-local n))))
 (define-instruction reg.set (segment n)
   (:emitter (note-register-use segment n)
             (emit-byte segment #x21)
-            (emit-uleb128 segment (+ +register-locals-base+ n))))
+            (emit-uleb128 segment (register-local n))))
 
 ;;;; Reference instructions
 

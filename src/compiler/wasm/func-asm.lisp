@@ -79,9 +79,13 @@ stackifier) or the dispatch loop.")
   "Called with the function when its control flow is irreducible and
 the dispatch loop is used instead.")
 
-;;; The uniform signature of a Lisp entry point.
-(defconstant-eqx +lisp-function-params+ '() #'equal)
+;;; The uniform signature of a Lisp entry point: NARGS and A0..A3 are the
+;;; parameters (their locals are the first five, REGISTER-LOCAL in
+;;; insts.lisp), the result is the values flag (call.lisp).
+(defconstant-eqx +lisp-function-params+ '(:i32 :i32 :i32 :i32 :i32) #'equal)
 (defconstant-eqx +lisp-function-results+ '(:i32) #'equal)
+;;; the registers that are parameters: NARGS, A0..A3
+(defconstant +lisp-param-register-mask+ #x3C01)
 
 ;;;; Byte ranges and arms
 
@@ -261,6 +265,7 @@ not the callee's start arm, the arm is passed through +GLOBAL-ENTRY-ARM+."
     ;; the callee reads the register area (its prologue) and writes it
     ;; back before returning
     (emit-flush buffer ctx)
+    (emit-lisp-args buffer)
     (buffer-byte buffer opcode)
     (emit-function-ref buffer ctx callee)
     (when (= opcode #x10)
@@ -310,12 +315,21 @@ function so that a loader can renumber it."
 ;;; their locals to the register area (EMIT-FLUSH) or read from it
 ;;; (EMIT-RELOAD). The area is the truth at every function entry, at a
 ;;; call, a return, a throw and a runtime entry point.
+;;;
+;;; The parameter registers (NARGS and A0..A3, the parameters of every
+;;; Lisp function) are in every Lisp function's REG-MASK whether a
+;;; REG.GET or REG.SET recorded them or not (LOWER-FUNCTIONS): a value
+;;; can sit in one of them without the function touching it, an argument
+;;; returned as it came, a local callee's result returned in turn, and
+;;; the function's local and the area each hold the truth at different
+;;; times (the local at entry, the area after a callee's return); so
+;;; they are flushed and reloaded like any register the function uses.
 (defun emit-flush (buffer ctx &optional mask)
   (let ((registers (logand (wasm-function-reg-mask (fctx-function ctx)) (or mask -1))))
     (dotimes (i sb-vm::+n-register-locals+)
       (when (logbitp i registers)
         (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)   ; global.get thread
-        (buffer-byte buffer #x20) (buffer-uleb128 buffer (+ +register-locals-base+ i)) ; local.get
+        (buffer-byte buffer #x20) (buffer-uleb128 buffer (register-local i)) ; local.get
         (buffer-byte buffer #x36) (buffer-byte buffer 2)                    ; i32.store align=2
         (buffer-uleb128 buffer (* i sb-vm::n-word-bytes))))))
 
@@ -326,7 +340,19 @@ function so that a loader can renumber it."
         (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)   ; global.get thread
         (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
         (buffer-uleb128 buffer (* i sb-vm::n-word-bytes))
-        (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ +register-locals-base+ i)))))) ; local.set
+        (buffer-byte buffer #x21) (buffer-uleb128 buffer (register-local i)))))) ; local.set
+
+;;; The registers a function's prologue reads from the area: all it
+;;; uses but the parameters, which arrive as such.
+(defun prologue-reload-mask (params)
+  (if (equal params +lisp-function-params+)
+      (lognot +lisp-param-register-mask+)
+      -1))
+
+;;; The parameters of a Lisp call, from this function's locals.
+(defun emit-lisp-args (buffer)
+  (dotimes (i (length +lisp-function-params+))
+    (buffer-byte buffer #x20) (buffer-uleb128 buffer (+ +register-locals-base+ i)))) ; local.get
 
 (defun emit-note-lowering (buffer note ctx)
   (let ((arms (fctx-arms ctx))
@@ -555,7 +581,7 @@ own) branches to, plus the function's start."
           (arm-index (arm-at arms (wasm-function-start function))))
     function))
 
-(defun lower-function-body (ctx &key (params '()) (locals '()))
+(defun lower-function-body (ctx &key (params +lisp-function-params+) (locals '()))
   "Lower the function of CTX (its ranges, notes and arms assigned by
 ASSIGN-ARMS) into a Wasm function body. Returns the body octets (ending
 with END) and the local declarations ((count . type) ...)."
@@ -566,12 +592,12 @@ with END) and the local declarations ((count . type) ...)."
          (n (length arms))
          ;; the three scratch locals VOPs may use (+SCRATCH-I32-LOCAL+ and
          ;; friends in macros.lisp), then $pc
-         (pc-local (+ (length params) sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
+         ;; the register locals (the parameters are the first of them),
+         ;; the scratch locals, $pc, the jump-table scratch local and
+         ;; (with non-local entries) $fp precede the caller's locals
+         (pc-local (+ sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
          (nlx-p (some (lambda (note) (eq (control-note-kind note) :nlx-entry)) notes))
-         ;; the register locals, the scratch locals, $pc, the jump-table
-         ;; scratch local and (with non-local entries) $fp precede the
-         ;; caller's locals
-         (all-locals (list* (cons sb-vm::+n-register-locals+ :i32)
+         (all-locals (list* (cons (- sb-vm::+n-register-locals+ (length params)) :i32)
                             '(1 . :i32) '(1 . :f32) '(1 . :f64)
                             (cons (if nlx-p 3 2) :i32) locals))
          (buffer (make-octet-buffer)))
@@ -602,7 +628,7 @@ with END) and the local declarations ((count . type) ...)."
       (buffer-uleb128 buffer (* sb-vm::cfp-offset sb-vm::n-word-bytes))
       (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ pc-local 2)))   ; local.set $fp
     ;; the register cache: the registers this function uses, from the area
-    (emit-reload buffer ctx)
+    (emit-reload buffer ctx (prologue-reload-mask params))
     ;; the arm to start at: $pc is 0 unless the start is another arm or a
     ;; caller of the same component chose one through the entry-arm global
     (cond ((wasm-function-entry-arm-p function)
@@ -671,6 +697,8 @@ with END) and the local declarations ((count . type) ...)."
 
 ;;; Lower one code range as a single function (level-0 tests).
 (defun lower-code-range (segment start end &key (params '()) (locals '()))
+  "A code range as a function without parameters (the level-0 tests):
+its 32 register locals are all locals."
   (let* ((function (make-wasm-function :env :test :index 0 :start start
                                        :chunks (list (cons start end))))
          (ctx (make-fctx :bytes (sb-assem:segment-contents-as-vector segment)
@@ -807,7 +835,9 @@ blocks (EMIT-NOTE-LOWERING)."
                            (some (lambda (r) (range-contains-p r (control-note-posn note))) ranges))
                          notes)))
         (assign-arms function ranges all-notes notes)
-        (setf (wasm-function-reg-mask function) (register-mask uses ranges))))
+        ;; the parameter registers always (EMIT-FLUSH)
+        (setf (wasm-function-reg-mask function)
+              (logior (register-mask uses ranges) +lisp-param-register-mask+))))
     ;; the arms other than a start that another function enters
     (setf (fctx-entry-arms ctx) (component-entry-arms ctx))
     ;; then the bodies: a body that enters another function at an arm

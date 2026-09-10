@@ -336,7 +336,7 @@ dead code (BUILD-CFG has no edge for it) and lowers to UNREACHABLE."
       (buffer-byte buffer #x0B)                                                 ; end (loop)
       (pop *open*))))
 
-(defun stackify-function-body (ctx entry-arms &key (params '()) (locals '()))
+(defun stackify-function-body (ctx entry-arms &key (params +lisp-function-params+) (locals '()))
   "Lower the function of CTX with structured control flow; ENTRY-ARMS
 are the arms entered from other functions of the component. Returns
 (values body locals), or NIL when the control flow is irreducible."
@@ -344,14 +344,14 @@ are the arms entered from other functions of the component. Returns
          (notes (wasm-function-notes function))
          (arms (wasm-function-arms function))
          (start-arm (wasm-function-start-arm function))
-         (pc-local (+ (length params) sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
+         (pc-local (+ sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
          (nlx-p (some (lambda (note) (eq (control-note-kind note) :nlx-entry)) notes))
          (nlx-entries (loop for note in notes
                             when (eq (control-note-kind note) :nlx-entry)
                             collect (arm-index (arm-at arms (sb-assem:label-position
                                                              (control-note-labels note))))))
          (entries (remove-duplicates (append entry-arms nlx-entries)))
-         (all-locals (list* (cons sb-vm::+n-register-locals+ :i32)
+         (all-locals (list* (cons (- sb-vm::+n-register-locals+ (length params)) :i32)
                             '(1 . :i32) '(1 . :f32) '(1 . :f64)
                             (cons (if nlx-p 3 2) :i32) locals))
          (cfg (build-cfg ctx entries)))
@@ -369,7 +369,7 @@ are the arms entered from other functions of the component. Returns
         (buffer-uleb128 buffer (* sb-vm::cfp-offset sb-vm::n-word-bytes))
         (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ pc-local 2)))   ; local.set $fp
       ;; the register cache: the registers this function uses, from the area
-      (emit-reload buffer ctx)
+      (emit-reload buffer ctx (prologue-reload-mask params))
       ;; $pc: the start arm, or the arm a caller chose (the prologue of
       ;; the dispatch encoding, which the entry dispatch reads)
       (cond ((wasm-function-entry-arm-p function)

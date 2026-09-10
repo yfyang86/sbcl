@@ -190,7 +190,7 @@ Environment variables read by the host and the runtime:
 | `SBCL_WASM_VERBOSE=1` | print the core module's compile and instantiate times |
 | `SBCL_WASM_TIMEOUT=<s>` | terminate the run after that many seconds with a Wasm backtrace and the Lisp register file |
 | `SBCL_WASM_TRACE_CALLS=1` | print every `call_into_lisp` (function, table index, argument count) |
-| `SBCL_WASM_TRACE_ENTRIES=1` | print every Lisp function entry (the callee's name or table index, NARGS, CFP, CSP, OCFP, A0, A1); decode with `tools-for-build/wasm-coreindex.py --annotate` |
+| `SBCL_WASM_TRACE_ENTRIES=1` | print every Lisp function entry (the callee's name or table index, NARGS, CFP, CSP, OCFP, A0, A1, as the register area has them at the entry's safe point); decode with `tools-for-build/wasm-coreindex.py --annotate` |
 | `SBCL_WASM_TRACE_ALLOC=1` | print the frame registers at every allocation |
 | `SBCL_WASM_VERIFY_GC=1` | run the collector's heap verifier before and after every collection; it reports each pointer to a stale object (`Ptr ... sees ...`) and code objects written without the "written" flag |
 | `SBCL_WASM_TRACE_AFTER_GC=1` | switch the entry trace on at the end of the first collection (the trace from startup is too long to be useful) |
@@ -216,7 +216,7 @@ second afterwards.
   writer in the cross-compiler image; modules validated with wasm-tools
   and executed under the wasmtime CLI.
 - Level 1 (`XC_CORE=obj/xbuild/wasm/after-xc.core tests/wasm/run-level1.sh`):
-  162 differential cases (442 argument sets) compiled by the wasm backend
+  163 differential cases (444 argument sets) compiled by the wasm backend
   and run by the Rust rig (`wasm/crates/sbcl-wasm-test`) against the host
   SBCL's results. Needs the after-xc core (`tests/wasm/make-after-xc.lisp`).
 - Sprint UATs (`Sprints/SprintN/uat.sh`): the acceptance checks of each
@@ -225,6 +225,17 @@ second afterwards.
   regressions; about 35 minutes).
 
 `./build-wasm.sh test` runs level 0 and level 1.
+
+- cl-bench (`tests/wasm/bench/cl-bench-compare.sh A B SCALE [NAME...]`):
+  runs the cl-bench kernels of `tests/wasm/bench/cl-bench-driver.lisp`
+  under the port on two cores, or on a core and the host SBCL (`host`),
+  at a scale (1 = the original iteration counts), and prints the ratio
+  per benchmark and the geometric mean; a `.results` file from an
+  earlier run stands in for either side. `CL_BENCH_HEAP` sets the
+  dynamic-space size of the port's runs (default `1GB`: the collector
+  triggers only at safe points, and the string benchmarks ask for tens
+  of megabytes between two), `CL_BENCH_TIMEOUT` bounds one benchmark
+  (seconds). Results and logs under `obj/wasm-build/cl-bench/`.
 
 - The saved core (`output/sbcl.core`, from `./build-wasm.sh warm`) is
   what the build tree's scripts run: `run-sbcl.sh`, `tests/subr.sh`
@@ -326,6 +337,18 @@ second afterwards.
   from stdin.
 - **`tools-for-build/wasm-func.py off:HEX`** prints the function containing
   a code offset as text with binary offsets and marks the instruction.
+- **The register file**: compiled code keeps the Lisp registers it uses
+  in Wasm locals (`reg.get`, `reg.set` in `insts.lisp`) and writes them
+  to the register area of the thread structure before every call,
+  return, throw and runtime entry (a `:flush` note the function
+  assembler lowers), reading them back after a call and at every entry;
+  so between those points the area is stale, and a dump of it (the trap
+  register file, the entry trace) shows a register as of the last flush.
+  NARGS and A0..A3 are the parameters of the Lisp function type,
+  `(i32 i32 i32 i32 i32) -> (i32)`, the result the values flag; a
+  callee reads them from its parameters, not the area, and every Lisp
+  function flushes and reloads them like registers it uses. The float
+  registers stay in the area.
 - **The entry trace** (`SBCL_WASM_TRACE_ENTRIES=1`): every XEP is a safe
   point that calls the runtime when the register area's interrupt-pending
   word is set, and so is every backward branch between blocks (a loop's
@@ -366,7 +389,8 @@ tools-for-build/wasm-build-runtime.sh          build src/runtime/sbcl.wasm
 tools-for-build/wasm-linkage-table.sh          generate the runtime's linkage table
 tools-for-build/wasm_run.sh                    run a module under the host
 src/compiler/wasm/                             backend: parms, vm, insts (encoder), module (writer),
-                                               func-asm (function assembler: arms, the dispatch loop),
+                                               func-asm (function assembler: arms, the dispatch loop,
+                                               the register cache's flush and reload),
                                                stackify (structured control flow, the default encoding),
                                                target-insts (the disassembler), VOP files
 tests/wasm/bench/                              cl-bench under the port: the driver and the two-core comparison
