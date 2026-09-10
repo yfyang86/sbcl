@@ -215,6 +215,12 @@
 ;;; error entry point (0) never returns.
 (defconstant +frame-register-mask+ #xFF
   "NARGS, CSP, CFP, OCFP, NFP, NSP, LEXENV and CODE (wasm-lispregs.h).")
+;;; An allocation entry point needs the stack bounds only: CSP for the
+;;; collector's stack scan when the request sets the collection pending,
+;;; CFP for the heap-exhaustion error's frame (its backtrace is what
+;;; loses the rest).
+(defconstant +alloc-register-mask+ #x06
+  "CSP and CFP.")
 ;;; A full call (CALL_INDIRECT with the Lisp function type, index 0 in
 ;;; every module) reads only what the convention passes (call.lisp): the
 ;;; frame registers, A0..A3 and RA; the values live across the call are
@@ -235,7 +241,7 @@ the unknown-values convention pass it to RETURN.")
   (:emitter
    (let ((import (and (integerp func) (< func 4) func)))
      (case import
-       ((1 2) (note-flush segment +frame-register-mask+))
+       ((1 2) (note-flush segment +alloc-register-mask+))
        (t (note-flush segment)))
      (emit-byte segment #x10)
      (etypecase func
