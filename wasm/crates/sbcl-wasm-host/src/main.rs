@@ -419,7 +419,10 @@ fn run() -> Result<()> {
     // the host's process id, for the runtime's getpid (WASI has none)
     linker.func_wrap("sbcl_host", "process_id", |_: Caller<'_, State>| -> i32 { std::process::id() as i32 })?;
     linker.define_unknown_imports_as_traps(&module)?;
-    let mut argv = vec![path.clone()];
+    // SBCL_WASM_ARGV0: what the guest sees as argv[0] (the launcher of an
+    // executable core passes its own name, so the runtime finds the core
+    // embedded in it and *posix-argv* names it, as on native targets)
+    let mut argv = vec![std::env::var("SBCL_WASM_ARGV0").unwrap_or_else(|_| path.clone())];
     argv.extend(rest);
     // The whole file system is visible with the host's paths, and the
     // host's working directory is passed as PWD, which the runtime makes
@@ -431,6 +434,10 @@ fn run() -> Result<()> {
         .inherit_stdio()
         .inherit_env()
         .env("PWD", cwd.to_string_lossy())
+        // the guest's own whereabouts: the runtime uses them for
+        // *runtime-pathname* and for the launcher of an executable core
+        .env("SBCL_WASM_HOST", std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+        .env("SBCL_WASM_RUNTIME", host_err(std::fs::canonicalize(&path), || path.clone())?.to_string_lossy())
         .args(&argv)
         .preopened_dir("/", "/", wasmtime_wasi::DirPerms::all(), wasmtime_wasi::FilePerms::all())?
         .build_p1();

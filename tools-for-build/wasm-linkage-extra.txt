@@ -58,3 +58,5 @@ brothertree_delete
 # runtime functions the tests call (bsearch.pure.lisp)
 bsearch_lesseql_uword
 bsearch_greatereql_uword
+# the canary check (SBCL_WASM_CANARY=1; wasi-mman.c), a debugging aid
+wasm_check_canaries

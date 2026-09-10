@@ -151,6 +151,7 @@ static uint32_t function_entry_index(lispobj fun, lispobj *lexenv, lispobj *simp
 extern unsigned char *gc_card_mark;
 extern sword_t gc_card_table_mask;
 
+void wasm_watch_check(const char *where);
 lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
 {
     struct thread *th = get_sb_vm_thread();
@@ -159,6 +160,7 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_TABLE) = (uint32_t)(uintptr_t)gc_card_mark;
     *(uint32_t*)((char*)r + LISP_REGISTER_AREA_CARD_MASK) = (uint32_t)gc_card_table_mask;
     wasm_check_stack("call_into_lisp");
+    wasm_watch_check("call_into_lisp entry");
     lispobj lexenv, simple_fun;
     uint32_t index = function_entry_index(fun, &lexenv, &simple_fun);
     /* A fresh frame at the current top of the control stack: the first
@@ -191,6 +193,7 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     lispobj result = (flag == 0 || r[reg_NARGS] != 0) ? r[reg_A0] : NIL;
     r[reg_CSP] = (uint32_t)(uintptr_t)frame;
     wasm_check_stack("call_into_lisp return");
+    wasm_watch_check("call_into_lisp return");
     return result;
 }
 
@@ -267,6 +270,27 @@ static void describe_wasm_internal_error(os_context_t *context)
     fflush(stderr);
 }
 
+/* SBCL_WASM_WATCH=HEXADDR: report where the word at that address changes,
+ * checked at the runtime's entry points (a debugging aid, Sprints/Sprint11). */
+void wasm_watch_check(const char *where)
+{
+    static int enabled = -1;
+    static uint32_t *addr;
+    static uint32_t last;
+    if (enabled < 0) {
+        const char *env = getenv("SBCL_WASM_WATCH");
+        enabled = env != 0;
+        if (enabled) { addr = (uint32_t*)(uintptr_t)strtoul(env, 0, 16); last = *addr; }
+    }
+    if (!enabled || *addr == last) return;
+    uint32_t *r = lisp_register_area;
+    fprintf(stderr, "; WATCH %p changed %#x -> %#x at %s: CSP %#x CFP %#x NSP %#x CODE %#x A0 %#x\n",
+            addr, (unsigned)last, (unsigned)*addr, where,
+            (unsigned)r[reg_CSP], (unsigned)r[reg_CFP], (unsigned)r[reg_NSP],
+            (unsigned)r[reg_CODE], (unsigned)r[reg_A0]);
+    last = *addr;
+}
+
 /* The internal_error import (EMIT-ERROR-BREAK, macros.lisp): compiled
  * code has stored the SC+OFFSET words of the arguments into the register
  * area's error-argument area. This is the whole of interrupt_internal_error
@@ -281,6 +305,7 @@ __attribute__((export_name("internal_error")))
 void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
 {
     wasm_check_stack("internal error");
+    wasm_watch_check("internal error entry");
     struct thread *th = get_sb_vm_thread();
     os_context_t context;
     uint32_t *args = (uint32_t*)((char*)lisp_register_area + LISP_REGISTER_AREA_ERROR_ARGS);
@@ -311,7 +336,9 @@ void wasm_internal_error(int32_t kind, int32_t code, int32_t nargs)
     bind_variable(FREE_INTERRUPT_CONTEXT_INDEX, make_fixnum(index + 1), th);
     nth_interrupt_context(index, th) = &context;
     DX_ALLOC_SAP(context_sap, &context);
+    wasm_watch_check("internal error before the handler");
     funcall2(StaticSymbolFunction(INTERNAL_ERROR), context_sap, NIL);
+    wasm_watch_check("internal error after the handler");
     nth_interrupt_context(index, th) = NULL;
     unbind(th);
     describe_wasm_internal_error(&context);
@@ -530,6 +557,7 @@ void wasm_save_core_module(const char *filename)
 int wasm_instantiate_module(const void *bytes, int32_t length, uint32_t table_base)
 {
     wasm_check_stack("before instantiate");
+    wasm_watch_check("instantiate");
     /* SBCL_WASM_DUMP_INSTALLED=1: write every module installed at run
      * time to obj/wasm-build/installed-BASE.wasm (a debugging aid) */
     if (getenv("SBCL_WASM_DUMP_INSTALLED")) {
