@@ -280,4 +280,16 @@ is every save from a saved core; the save takes seconds less as well.
 
 ## 6. Against the host
 
-(filled in from the scale-1 run of the compute-bound subset)
+The plan's exit criterion is the compute-bound benchmarks within 3×
+of native. The 31 kernels without allocation-heavy or I/O work, at the
+original run counts, host against the sprint's code with the fixed
+runtime (`doc/wasm-port/baselines/sprint-13-cl-bench.md`, section 4):
+the geometric mean is 5.3× slower; eight kernels are within 3× (the
+array and float loops: `3d-arrays` 1.1×, `mandelbrot/dfloat` 1.0,
+`div2-test-1` 1.1, `mrg32k3a` 1.3, `2d-arrays` 1.3, `fft` 1.8, `deriv`
+2.5, `factorial` 2.7), seven between 3× and 4×, and the sixteen others
+are the call-heavy kernels at 5–25× and the two that go through the
+runtime (`ctak` 138×, `crc40` 80×). On the whole suite at scale 10 the
+port is 5.9× slower (Sprint 12: 8.2×). The criterion is not met; where
+the time goes is section 4, and the V8 half is not measured, there
+being no JavaScript host yet.

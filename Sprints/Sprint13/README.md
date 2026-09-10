@@ -14,6 +14,6 @@ Exit criterion (the plan): the suites clean; the compute-bound
 cl-bench results within 3× of native SBCL under V8 and Wasmtime,
 recorded in `doc/wasm-port/baselines/`.
 
-Status: in progress. Records: `develop.md`, `test.md`, `verify.md`.
+Status: complete (the exit criterion on performance not met, recorded in `verify.md`). Records: `develop.md`, `test.md`, `verify.md`.
 The sprint branch `sprint13` is merged into `wasm-dev` with `--no-ff`
 when its records are complete.
