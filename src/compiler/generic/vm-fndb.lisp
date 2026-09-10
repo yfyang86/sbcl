@@ -654,7 +654,9 @@
 
 (defknown %simple-fun-type (function) t (flushable))
 
-#+(or arm64 ppc64 x86 x86-64) (defknown sb-vm::%closure-callee (function) fixnum (flushable))
+#+(or arm64 ppc64 x86 x86-64 wasm) (defknown sb-vm::%closure-callee (function) fixnum (flushable))
+;; wasm %closure-fun is a VOP of its own: a simple-fun slot 0 is its
+;; self slot, which holds a table index there, not a pointer
 (defknown %closure-fun (function) function (flushable))
 
 (defknown %closure-index-ref (function index) t

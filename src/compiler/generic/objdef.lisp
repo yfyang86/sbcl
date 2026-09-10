@@ -264,8 +264,8 @@ during backtrace.
                                   ;; closures which requires that the length be
                                   ;; a compile-time constant.
                                   :alloc-trans %alloc-closure)
-  (fun :init :arg :ref-trans #+(or arm64 ppc64 x86 x86-64) %closure-callee
-                             #-(or arm64 ppc64 x86 x86-64) %closure-fun)
+  (fun :init :arg :ref-trans #+(or arm64 ppc64 x86 x86-64 wasm) %closure-callee
+                             #-(or arm64 ppc64 x86 x86-64 wasm) %closure-fun)
   (info :rest-p t))
 
 (define-primitive-object (funcallable-instance

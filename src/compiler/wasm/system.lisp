@@ -112,6 +112,28 @@
       (load-reg function)
       (emit-load-sized 1 nil (- fun-pointer-lowtag)))))
 
+;;; The closure's fun slot holds the simple-fun it closes over; the
+;;; slot 0 of a simple-fun itself is its self slot, which holds the
+;;; function's table index on this target, not a pointer. Answer the
+;;; fun itself in that case — what the x86s get by loading a self
+;;; pointer — so callers that pass either (the tests' evaluator
+;;; produces a bare simple-fun for a DEFUN) see a function either way.
+(define-vop (%closure-fun)
+  (:policy :fast-safe)
+  (:translate %closure-fun)
+  (:args (function :scs (descriptor-reg)))
+  (:results (result :scs (descriptor-reg)))
+  (:generator 6
+    (let ((done (gen-label)))
+      (move result function)
+      (load-reg function)
+      (emit-load-sized 1 nil (- fun-pointer-lowtag))
+      (inst i32.const simple-fun-widetag)
+      (inst i32.eq)
+      (inst jump-if done)
+      (loadw result function closure-fun-slot fun-pointer-lowtag)
+      (emit-label done))))
+
 (define-vop (get-header-data)
   (:translate get-header-data)
   (:policy :fast-safe)

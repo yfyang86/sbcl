@@ -26,13 +26,16 @@ if [ -z "$files" ]; then
     files=$(ls *.pure.lisp *.pure-cload.lisp *.impure.lisp *.impure-cload.lisp *.test.sh 2>/dev/null)
 fi
 export logdir opts
-echo "$files" | tr ' ' '\n' | grep . | xargs -P "$jobs" -I{} sh -c '
-    f={}; log="$logdir/$f.log"
+# the file goes in as an argument, not an xargs -I replacement: BSD
+# xargs (macOS) gives up on long replacement strings after ~60 files
+# and the rest of the suite silently never runs
+echo "$files" | tr ' ' '\n' | grep . | xargs -P "$jobs" -n 1 sh -c '
+    f=$1; log="$logdir/$f.log"
     start=$(date +%s)
     SBCL_WASM_TIMEOUT=${SBCL_WASM_TEST_TIMEOUT:-1800} sh ./run-tests.sh $opts "$f" > "$log" 2>&1
     status=$?
     echo "$status $(( $(date +%s) - start ))s $f"
-' | tee "$logdir/results.txt"
+' run-one | tee "$logdir/results.txt"
 echo "==== Summary ===="
 echo "files: $(wc -l < "$logdir/results.txt"), failed: $(grep -cv "^0 " "$logdir/results.txt")"
 grep -v "^0 " "$logdir/results.txt" | sort -k3 > "$logdir/failed-files.txt"
