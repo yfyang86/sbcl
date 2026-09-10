@@ -367,7 +367,7 @@ VALUE-FORMS at address+DISPLACEMENT."
 (defmacro emit-conditional-branch (target not-p)
   `(progn
      (when ,not-p (inst i32.eqz))
-     (inst jump-if ,target)))
+     (inst jump-if ,target :poll)))
 
 ;;; Emit the comparison instruction for CONDITION, one of :eq :ne :lt :le
 ;;; :gt :ge (signed) or :ltu :leu :gtu :geu (unsigned), with the two

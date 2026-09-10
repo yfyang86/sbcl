@@ -157,6 +157,20 @@ child process keep a tag (the host runs the child and waits for it, so
 no deadline can interrupt the wait: `run-program :wait nil` is on the
 backlog).
 
+The first `timer.impure.lisp` run hung in `:deferrables-blocked`: its
+`(loop until finishedp)` waits for a timer with no call in the loop, so
+no safe point was ever reached (the "safe point only at function
+entry" item carried since Sprint 8). The function assembler now makes
+a backward block branch a safe point too (`EMIT-BACK-EDGE-POLL`: the
+interrupt-pending word tested, `pending_interrupt` called when set: a
+load and a branch per iteration). The first version polled at every
+backward jump, including those inside a VOP (the argument-copying and
+values loops of call.lisp, values.lisp): the warm compile then died in
+the type system with a collection run from such a loop, whose values
+are in Wasm locals or half-moved on the stack; only the branches the
+compiler emits between its blocks (`BRANCH`, `EMIT-CONDITIONAL-BRANCH`,
+marked `:poll` on the control note) qualify.
+
 ## 5. One module per saved core
 
 A warm load's core carried 7,138 modules, one per code object loaded

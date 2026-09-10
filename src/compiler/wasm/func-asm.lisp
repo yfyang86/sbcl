@@ -281,8 +281,10 @@ function so that a loader can renumber it."
              (arm-index (arm-at arms (sb-assem:label-position label))))
            (local-target-p (label)
              (find (sb-assem:label-position label) arms :key #'arm-start))
+           ;; a block branch (:poll) going back: a loop's safe point
            (backward-p (label)
-             (<= (sb-assem:label-position label) (control-note-posn note))))
+             (and (eq (control-note-data note) :poll)
+                  (<= (sb-assem:label-position label) (control-note-posn note)))))
       (ecase (control-note-kind note)
         (:jump
          (let ((label (control-note-labels note)))

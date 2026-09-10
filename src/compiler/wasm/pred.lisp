@@ -16,7 +16,7 @@
 (define-vop (branch)
   (:info dest)
   (:generator 3
-    (inst jump dest)))
+    (inst jump dest :poll)))
 
 ;;; Conditional VOPs on this target branch themselves (:CONDITIONAL with
 ;;; TARGET and NOT-P), so the flag-based BRANCH-IF is never selected.
