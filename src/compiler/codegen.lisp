@@ -329,7 +329,22 @@
                                        (typep types '(cons (eql :conditional)))))))
                      (funcall gen vop))
                    #-wasm
-                   (funcall gen vop)))))))
+                   (funcall gen vop))))))
+      ;; the WebAssembly port: a block that never falls through (a call
+      ;; the compiler knows does not return, or a return) ends in
+      ;; UNREACHABLE, whose :TERMINATOR note tells the function assembler
+      ;; the code placed after it is not the block's successor
+      ;; (stackify.lisp)
+      #+wasm
+      (let ((1block (ir2-block-block block)))
+        (when (and (block-start 1block)
+                   (let ((next (ir2-block-next block)))
+                     (or (null next) (not (eq (ir2-block-block next) 1block))))
+                   (let ((succ (block-succ 1block)))
+                     (and succ (null (cdr succ))
+                          (eq (car succ) (component-tail component)))))
+          (assemble (:code 'nil)
+            (inst unreachable)))))
     #+(or arm64 x86-64)
     (when (and *do-instcombine-pass*
                (policy (block-home-lambda
