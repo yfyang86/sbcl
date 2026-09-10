@@ -4,7 +4,7 @@
 # module: 1 functions at 62043..62044 (583 bytes)
 ;;;; SIGBUS handler not installed
 # exit 0
-# exit 0 in 172 ms
+# exit 0 in 166 ms
 * 
 3 
 3
