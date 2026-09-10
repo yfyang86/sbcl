@@ -1,28 +1,74 @@
 SBCL WebAssembly port: regression suite baseline (master sync after Sprint 14)
-date: 2026-09-10T16:19Z  commit: 6089970f3  runtime: src/runtime/sbcl.wasm  core: output/sbcl.core
-runner: tests/wasm-parallel-exec.sh (one sbcl-wasm per file through run-tests.sh)
+date: 2026-09-10T18:50Z  commit: 405e1b9e1  runtime: src/runtime/sbcl.wasm  core: output/sbcl.core
+runner: tests/wasm-parallel-exec.sh (files as xargs arguments now; BSD xargs -I stopped after ~62 files before)
 
 == summary
-files:       62, failed: 7
-unexpected failures:       45 (in /Users/yifanyang/sbcl-test-logs-20567/failures.txt)
+files:      403, failed: 52
+unexpected failures:      177 (in /Users/yifanyang/sbcl-test-logs-67613/failures.txt)
 
-== files whose run did not succeed (status, time, file)
-1 4s alien-struct-access.impure.lisp
-1 4s aliencall.pure.lisp
-1 89s arith-2.pure.lisp
+== versus Sprint 13 (sprint-13.txt): 4 fixed (CHECK-BOUND-SIGNED-BOUND-NOTES un-marked; CODE-ITERATION-FAST, PAGE-PROTECTED-P, ROSPACE-STRINGS), 1 new
+== (NO-CONSING WITH-PINNED-OBJECTS): no stack allocation on this target; also fails on the pre-sync build
+== on this machine, the master sync's picks introduced no regression (bisection in the sprint records)
+
+== files that did not pass (status, seconds, file)
+1 81s arith-2.pure.lisp
 1 6s backtrace.impure.lisp
-1 7s bit-vector.impure.lisp
+1 8s bit-vector.impure.lisp
 1 3s ccase.pure.lisp
-1 5s chill.impure.lisp
+1 7s chill.impure.lisp
+1 38s clos.impure.lisp
+1 5s compiler-ir.pure.lisp
+1 90s compiler.impure.lisp
+1 7s compiler.pure-cload.lisp
+1 186s compiler.pure.lisp
+1 5s condition-2.pure.lisp
+1 6s condition.pure.lisp
+1 23s constraint.pure.lisp
+1 21s ctor.impure.lisp
+1 7s debug.impure.lisp
+1 4s debug.pure.lisp
+1 32s defstruct.impure.lisp
+1 5s disassem.impure.lisp
+1 3s disassem.pure-cload.lisp
+1 66s dynamic-extent.pure.lisp
+1 7s fifo-slow.impure.lisp
+1 7s filesys.test.sh
+1 5s finalize.impure.lisp
+1 17s float-2.pure.lisp
+1 5s foreign-stack-alignment.impure.lisp
+1 6s gc-slow.impure.lisp
+1 5s hash-2.pure.lisp
+1 6s hash-table.impure.lisp
+1 26s hide-packages.test.sh
+1 12s hopscotch.impure-cload.lisp
+1 6s interface.impure.lisp
+1 4s interface.pure.lisp
+1 12s macro-policy-decls.impure-cload.lisp
+1 9s packages.impure.lisp
+1 5s pathnames.pure.lisp
+1 7s reader.impure.lisp
+1 5s reader.pure.lisp
+1 5s run-program.test.sh
+1 6s run-sbcl.test.sh
+1 9s save2.test.sh
+1 5s save3.test.sh
+1 7s save8.test.sh
+1 8s sb-introspect.impure.lisp
+1 13s script.test.sh
+1 4s selfbuild-output.pure.lisp
+1 4s step.pure.lisp
+1 5s stream.impure.lisp
+1 5s stream.pure.lisp
+1 7s stream.test.sh
+1 1803s threads.impure.lisp
+1 5s unwind-to-frame-and-call.impure.lisp
+1 5s utf-8.impure.lisp
 
 == unexpected failures (file / test)
-alien-struct-access.impure.lisp: Unhandled SB-INT:SIMPLE-FILE-ERROR:
-aliencall.pure.lisp: Unhandled SB-INT:SIMPLE-FILE-ERROR:
 arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / LOGAND-CUT-CONSTANTS.2
 arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / SIGNED-BYTE-8-P-UNSIGNED
 arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / TRUNCATE-UNKNOWN-INTEGER
 arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / WORD-FLOOR-CEILING
-array.pure.lisp:  Unexpected success: array.pure.lisp / CHECK-BOUND-SIGNED-BOUND-NOTES
 backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-308926)
 backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-310173)
 backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-354)
@@ -61,3 +107,138 @@ backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / UNINITIALIZE
 bit-vector.impure.lisp: Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
 ccase.pure.lisp:  Failure:            ccase.pure.lisp / CCASE-SUBFORMS-ONCE-ONLY
 chill.impure.lisp:  Failure:            chill.impure.lisp / (CHILL READ-XC-FILES)
+clos.impure.lisp:  Failure:            clos.impure.lisp / SETF-SLOT-VALUE-RESTART
+compiler-ir.pure.lisp:  Failure:            compiler-ir.pure.lisp / EVENP+ARITHMETIC
+compiler-ir.pure.lisp:  Failure:            compiler-ir.pure.lisp / SIGN-EXTEND
+compiler.impure.lisp:  Failure:            compiler.impure.lisp / COMPILED-DEBUG-FUNS-LEAK
+compiler.pure-cload.lisp:  Failure:            /private/var/folders/5_/cwswxkd94mncymd3qw_wv2b40000gn/T/sbcl-scratch72561wozmfbldfe.fasl / SPLAT-NIL
+compiler.pure.lisp:  Failure:            compiler.pure.lisp / QUANTIFIERS-NO-CONSING
+compiler.pure.lisp:  Failure:            compiler.pure.lisp / REDUCING-CONSTANTS
+condition-2.pure.lisp:  Failure:            condition-2.pure.lisp / RESTART-TYPE-ERROR
+condition.pure.lisp:  Failure:            condition.pure.lisp / TYPE-ERROR-ON-DX-OBJECT
+constraint.pure.lisp:  Failure:            constraint.pure.lisp / IGNORE-DELAYS
+ctor.impure.lisp:  Failure:            ctor.impure.lisp / (MAKE-INSTANCE CTOR-DEFAULT-INITARGS-1)
+ctor.impure.lisp:  Failure:            ctor.impure.lisp / (MAKE-INSTANCE CTOR-DEFAULT-INITARGS-2)
+debug.impure.lisp:  Invalid exit status: debug.impure.lisp
+debug.pure.lisp:  Failure:            debug.pure.lisp / C-UNPACK-COMPILED-DEBUG-INFO-FUN-MAP
+defstruct.impure.lisp:  Failure:            defstruct.impure.lisp / BUG-3B
+defstruct.impure.lisp:  Failure:            defstruct.impure.lisp / DEFSTRUCT-BOA-NICE-ERROR
+disassem.impure.lisp:  Failure:            disassem.impure.lisp / DISASSEMBLE-SAP
+disassem.pure-cload.lisp:  Failure:            /private/var/folders/5_/cwswxkd94mncymd3qw_wv2b40000gn/T/sbcl-scratch74467wozmfbldfe.fasl / DISASSEMBLE-ANNOTATE-FUNS
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (DX-BUG-MISC BDOWNING-2005-IV-16)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (DX-FLET-TEST 0)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (DX-FLET-TEST 1)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (DX-FLET-TEST 2)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING AUTO-DX-CLOSURES)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-ARRAYS)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-CLOSURES)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-FIXED-OBJECTS)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-LISTS)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-VALUE-CELL)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING DX-VECTORS)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING MORE-AUTO-DX-CLOSURES)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / (NO-CONSING WITH-PINNED-OBJECTS)
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-DISJOINT-SEQUENTIAL.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-FLET-SEVERAL-REF.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO.TRANSFORM
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-KNOWN-FUNCTIONS-TOO.TRANSFORM-2
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-MONSTER
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-MUTUALLY-RECURSIVE.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-RECURSIVE-REF-2.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-RECURSIVE-REF.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-TRANSITIVE-CARRIERS.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-WITH-SINGLE-REF-FLET
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-XEP-AND-LOCAL-CALL.SHARED-FLET-CLEANUP.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / AUTO-DX-XEP-AND-LOCAL-CALL.STACK-ALLOCATES
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE-OTHERWISE-INACCESSIBLE
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DX-ANONYMOUS-CLOSURE-OTHERWISE-INACCESSIBLE.FLET
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DX-DO-PROPAGATE-LET-VAR
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DX-FLET-SUBSTITUTION-MULTIPLE-REFS
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-CONDITIONAL-ALLOCATION.PARTIAL
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-CONDITIONAL-ALLOCATION.PARTIAL.2
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-FUNCTION-BRANCH
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2043242
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2156347
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-LP2156347.REDUCED
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-MESS-UP
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LET
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LOCAL-CALLS
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-LOCAL-CALLS.INTERLEAVE
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-SETQ-NESTED
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / DYNAMIC-EXTENT-START-LATER
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / HANDLER-CASE-EATING-STACK
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / LAMBDA-REF-SUBSTITUTION
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / LIST+FILL+MAKE-ARRAY
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / NESTED-MULTIPLE-USE-VARS
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / NESTED-MULTIPLE-USE-VARS-VECTOR-FILL
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / RECHECK-NESTED-DX-BUG
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / STACK-ALLOCATED-VECTOR-CHECKS-OVERFLOW
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / STACK-ANALYSIS-PRESERVE.SETQ-NESTED-LOOP
+dynamic-extent.pure.lisp:  Failure:            dynamic-extent.pure.lisp / WITH-OUTPUT-TO-STRING
+fifo-slow.impure.lisp: Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
+filesys.test.sh:  Invalid exit status: filesys.test.sh
+filesys.test.sh: Unhandled SIMPLE-ERROR:
+finalize.impure.lisp:  Failure:            finalize.impure.lisp / FINALIZERS-RAN
+finalize.test.sh: Unhandled SB-INT:EXTENSION-FAILURE:
+float-2.pure.lisp:  Failure:            float-2.pure.lisp / COMPLEX-FLOAT
+float-2.pure.lisp:  Failure:            float-2.pure.lisp / THE-TRUNCATE
+foreign-stack-alignment.impure.lisp: Unhandled SIMPLE-ERROR: Unknown platform
+gc-slow.impure.lisp:  Invalid exit status: gc-slow.impure.lisp
+hash-2.pure.lisp:  Failure:            hash-2.pure.lisp / (HASH-TABLE WEAKNESS EQL NUMBERS)
+hash-2.pure.lisp:  Failure:            hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY REMOVAL)
+hash-2.pure.lisp:  Failure:            hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY-AND-VALUE REMOVAL)
+hash-2.pure.lisp:  Failure:            hash-2.pure.lisp / (HASH-TABLE WEAKNESS KEY-OR-VALUE REMOVAL)
+hash-2.pure.lisp:  Failure:            hash-2.pure.lisp / (HASH-TABLE WEAKNESS VALUE REMOVAL)
+hash-table.impure.lisp:  Failure:            hash-table.impure.lisp / HASH-TABLE-ITERATOR-NO-NOTES
+hide-packages.test.sh:  Invalid exit status: hide-packages.test.sh
+hide-packages.test.sh: Unhandled SIMPLE-ERROR:
+hopscotch.impure-cload.lisp:  Invalid exit status: hopscotch.impure-cload.lisp
+interface.impure.lisp:  Invalid exit status: interface.impure.lisp
+interface.pure.lisp:  Failure:            interface.pure.lisp / (DISASSEMBLE PURIFIED)
+macro-policy-decls.impure-cload.lisp: Unhandled SIMPLE-ERROR: code coverage is not supported on this target yet
+packages.impure.lisp:  Failure:            packages.impure.lisp / MAKE-PACKAGE-COMPILE-TWICE
+pathnames.pure.lisp:  Failure:            pathnames.pure.lisp / INTERN-PATHNAME-NON-CONSY
+reader.impure.lisp:  Failure:            reader.impure.lisp / (SHARP=-CONS-TYPED-CONS-SLOT CIRCULAR NO-ERROR)
+reader.impure.lisp:  Failure:            reader.impure.lisp / (SHARP=-CONS-TYPED-SLOT CIRCULAR NO-ERROR)
+reader.impure.lisp:  Failure:            reader.impure.lisp / (SHARP=-TYPED-SLOT CIRCULAR NO-ERROR)
+reader.pure.lisp:  Failure:            reader.pure.lisp / READ-DOES-NOT-CONS-PER-SE
+reader.pure.lisp:  Failure:            reader.pure.lisp / READ-SYMBOL-DOES-NOT-CONS-PER-SE
+run-program.test.sh:  Invalid exit status: run-program.test.sh
+run-program.test.sh: Unhandled SIMPLE-ERROR:
+run-sbcl.test.sh:  Invalid exit status: run-sbcl.test.sh
+run-sbcl.test.sh: Unhandled SB-INT:EXTENSION-FAILURE:
+save2.test.sh:  Invalid exit status: save2.test.sh
+save3.test.sh:  Invalid exit status: save3.test.sh
+save3.test.sh: Unhandled SB-INT:EXTENSION-FAILURE:
+save8.test.sh:  Invalid exit status: save8.test.sh
+sb-introspect.impure.lisp: Unhandled SIMPLE-ERROR: alien callbacks are not implemented on this target yet
+script.test.sh:  Invalid exit status: script.test.sh
+selfbuild-output.pure.lisp:  Failure:            selfbuild-output.pure.lisp / COPY-STRUCTURE-EFFICIENT-CASE
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-FRAME
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-INTO
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-NEXT
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-NEXT/2
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-OUT
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-OUT/2
+step.pure.lisp:  Failure:            step.pure.lisp / STEP-START-FROM-BREAK
+stream.impure.lisp: Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
+stream.pure.lisp:  Failure:            stream.pure.lisp / WITH-INPUT-FROM-STRING-SIGNAL-STREAM-ERROR
+stream.test.sh:  Invalid exit status: stream.test.sh
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME NORMAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME OPTIONAL-SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RESTART-FRAME SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS TOPLEVEL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS TOPLEVEL-SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME ANONYMOUS)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME HAIRY-LOCAL-FUNCTION)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME LOCAL-FUNCTION)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME NORMAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME OPTIONAL-SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / (RETURN-FROM-FRAME SPECIAL)
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / CURRENT-CATCH-BLOCK-RESTORED
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / TEST-UNWIND-1
+unwind-to-frame-and-call.impure.lisp:  Failure:            unwind-to-frame-and-call.impure.lisp / TEST-UNWIND-2
+utf-8.impure.lisp: Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
