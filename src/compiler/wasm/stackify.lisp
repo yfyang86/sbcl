@@ -91,7 +91,7 @@ jump table targets another function."
                  (setf terminated t))
                 ((:tail-call-label :terminator)
                  (setf terminated t))
-                ((:call-label :label-index :func-begin :func-end :nlx-entry)
+                ((:call-label :label-index :func-begin :func-end :nlx-entry :flush :reload)
                  nil))))
           (unless (or terminated (arm-chunk-end-p arm))
             (add-edge i :fall (1+ i)))))
@@ -194,7 +194,7 @@ back edge between the compiler's blocks."
                    (let ((label (control-note-labels note)))
                      (or (eq (control-note-data note) :poll)
                          (member label (fctx-block-labels ctx) :test #'eq))))))
-    (when poll (emit-back-edge-poll buffer))
+    (when poll (emit-back-edge-poll buffer ctx))
     (buffer-byte buffer #x0C) (buffer-uleb128 buffer (depth-to arm))))   ; br
 
 (defun stackify-note (buffer note ctx cfg)
@@ -249,6 +249,8 @@ back edge between the compiler's blocks."
         (:label-index
          (buffer-byte buffer #x41)                                              ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
+        (:flush (emit-flush buffer ctx (control-note-data note)))
+        (:reload (emit-reload buffer ctx))
         ((:func-begin :func-end :nlx-entry :terminator)
          nil))
       cfg)))
@@ -342,14 +344,15 @@ are the arms entered from other functions of the component. Returns
          (notes (wasm-function-notes function))
          (arms (wasm-function-arms function))
          (start-arm (wasm-function-start-arm function))
-         (pc-local (+ (length params) sb-vm::+n-scratch-locals+))
+         (pc-local (+ (length params) sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
          (nlx-p (some (lambda (note) (eq (control-note-kind note) :nlx-entry)) notes))
          (nlx-entries (loop for note in notes
                             when (eq (control-note-kind note) :nlx-entry)
                             collect (arm-index (arm-at arms (sb-assem:label-position
                                                              (control-note-labels note))))))
          (entries (remove-duplicates (append entry-arms nlx-entries)))
-         (all-locals (list* '(1 . :i32) '(1 . :f32) '(1 . :f64)
+         (all-locals (list* (cons sb-vm::+n-register-locals+ :i32)
+                            '(1 . :i32) '(1 . :f32) '(1 . :f64)
                             (cons (if nlx-p 3 2) :i32) locals))
          (cfg (build-cfg ctx entries)))
     (unless (and cfg (cfg-analyze cfg))
@@ -365,6 +368,8 @@ are the arms entered from other functions of the component. Returns
         (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load
         (buffer-uleb128 buffer (* sb-vm::cfp-offset sb-vm::n-word-bytes))
         (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ pc-local 2)))   ; local.set $fp
+      ;; the register cache: the registers this function uses, from the area
+      (emit-reload buffer ctx)
       ;; $pc: the start arm, or the arm a caller chose (the prologue of
       ;; the dispatch encoding, which the entry dispatch reads)
       (cond ((wasm-function-entry-arm-p function)

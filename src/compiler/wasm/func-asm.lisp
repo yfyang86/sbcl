@@ -57,13 +57,17 @@
 ;;; thread-area word holding the block an unwind is targeting
 (defconstant sb-vm::+thread-unwind-target-offset+ 448)
 
-;;; Every Lisp function (no parameters) starts with three scratch locals
-;;; a VOP may use to reorder operands, since Wasm has no swap: a value
-;;; already on the operand stack can be parked while the address it is
-;;; stored to is pushed (see CALL-OUT in c-call.lisp).
-(defconstant sb-vm::+scratch-i32-local+ 0)
-(defconstant sb-vm::+scratch-f32-local+ 1)
-(defconstant sb-vm::+scratch-f64-local+ 2)
+;;; Every Lisp function (no parameters) starts with one local per
+;;; register slot, the register cache (+REGISTER-LOCALS-BASE+, insts.lisp;
+;;; EMIT-RELOAD and EMIT-FLUSH below move them from and to the register
+;;; area), then three scratch locals a VOP may use to reorder operands,
+;;; since Wasm has no swap: a value already on the operand stack can be
+;;; parked while the address it is stored to is pushed (see CALL-OUT in
+;;; c-call.lisp).
+(defconstant sb-vm::+n-register-locals+ 32)
+(defconstant sb-vm::+scratch-i32-local+ 32)
+(defconstant sb-vm::+scratch-f32-local+ 33)
+(defconstant sb-vm::+scratch-f64-local+ 34)
 (defconstant sb-vm::+n-scratch-locals+ 3)
 
 ;;; The stackifier (stackify.lisp, compiled after this file) is the
@@ -89,7 +93,7 @@ the dispatch loop is used instead.")
   (ecase (control-note-kind note)
     ((:jump :jump-if :nlx-entry :label-index) (list (control-note-labels note)))
     (:jump-table (append (control-note-labels note) (list (control-note-data note))))
-    ((:func-begin :func-end :call-label :tail-call-label :terminator) '())))
+    ((:func-begin :func-end :call-label :tail-call-label :terminator :flush :reload) '())))
 
 ;;; An arm is a byte range of the segment; arms are numbered in the
 ;;; order they are emitted, which is range order then position order.
@@ -167,7 +171,12 @@ position, its first arm is the target and the empty arm is dead."
   (start-arm 0 :type index)
   ;; true when another function enters this one at an arm other than
   ;; its start, through +GLOBAL-ENTRY-ARM+
-  (entry-arm-p nil))
+  (entry-arm-p nil)
+  ;; the registers the function's code touches (a bit per register
+  ;; slot): the locals its prologue reads from the register area and its
+  ;; flush points write back (LOWER-FUNCTIONS, from the REG.GET/REG.SET
+  ;; records of the segment)
+  (reg-mask 0 :type (unsigned-byte 32)))
 
 (defun wasm-function-name (function)
   (let ((entry (wasm-function-entry function))
@@ -249,8 +258,13 @@ not the callee's start arm, the arm is passed through +GLOBAL-ENTRY-ARM+."
       (setf (wasm-function-entry-arm-p callee) t)
       (buffer-byte buffer #x41) (buffer-sleb128 buffer (1+ (arm-index arm)))   ; i32.const
       (buffer-byte buffer #x24) (buffer-uleb128 buffer +global-entry-arm+))    ; global.set
+    ;; the callee reads the register area (its prologue) and writes it
+    ;; back before returning
+    (emit-flush buffer ctx)
     (buffer-byte buffer opcode)
-    (emit-function-ref buffer ctx callee)))
+    (emit-function-ref buffer ctx callee)
+    (when (= opcode #x10)
+      (emit-reload buffer ctx))))
 
 (defun emit-function-ref (buffer ctx function)
   "The module index of FUNCTION (of the same component) as a fixed
@@ -281,13 +295,38 @@ function so that a loader can renumber it."
 ;;; and +IMPORT-PENDING-INTERRUPT+ are these)
 (defconstant +poll-word-offset+ 456)
 (defconstant +poll-import+ 3)
-(defun emit-back-edge-poll (buffer)
+(defun emit-back-edge-poll (buffer ctx)
   (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)  ; global.get thread
   (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
   (buffer-uleb128 buffer +poll-word-offset+)
   (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+)   ; if
+  (emit-flush buffer ctx)
   (buffer-byte buffer #x10) (buffer-uleb128 buffer +poll-import+)     ; call pending_interrupt
+  (emit-reload buffer ctx)
   (buffer-byte buffer #x0B))                                          ; end
+
+;;; The register cache (insts.lisp, REG.GET and REG.SET): the registers
+;;; of the function's REG-MASK, and of MASK when given, written from
+;;; their locals to the register area (EMIT-FLUSH) or read from it
+;;; (EMIT-RELOAD). The area is the truth at every function entry, at a
+;;; call, a return, a throw and a runtime entry point.
+(defun emit-flush (buffer ctx &optional mask)
+  (let ((registers (logand (wasm-function-reg-mask (fctx-function ctx)) (or mask -1))))
+    (dotimes (i sb-vm::+n-register-locals+)
+      (when (logbitp i registers)
+        (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)   ; global.get thread
+        (buffer-byte buffer #x20) (buffer-uleb128 buffer (+ +register-locals-base+ i)) ; local.get
+        (buffer-byte buffer #x36) (buffer-byte buffer 2)                    ; i32.store align=2
+        (buffer-uleb128 buffer (* i sb-vm::n-word-bytes))))))
+
+(defun emit-reload (buffer ctx)
+  (let ((registers (wasm-function-reg-mask (fctx-function ctx))))
+    (dotimes (i sb-vm::+n-register-locals+)
+      (when (logbitp i registers)
+        (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)   ; global.get thread
+        (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
+        (buffer-uleb128 buffer (* i sb-vm::n-word-bytes))
+        (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ +register-locals-base+ i)))))) ; local.set
 
 (defun emit-note-lowering (buffer note ctx)
   (let ((arms (fctx-arms ctx))
@@ -307,7 +346,7 @@ function so that a loader can renumber it."
         (:jump
          (let ((label (control-note-labels note)))
            (cond ((local-target-p label)
-                  (when (backward-p label) (emit-back-edge-poll buffer))
+                  (when (backward-p label) (emit-back-edge-poll buffer ctx))
                   (emit-set-pc-and-loop buffer pc-local (target-arm label)))
                  (t
                   ;; a tail local call into another function
@@ -318,7 +357,7 @@ function so that a loader can renumber it."
            (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+) ; if
            (let ((*open* (cons :if *open*)))
              (cond ((local-target-p label)
-                    (when (backward-p label) (emit-back-edge-poll buffer))
+                    (when (backward-p label) (emit-back-edge-poll buffer ctx))
                     (emit-set-pc-and-loop buffer pc-local (target-arm label)))
                    (t
                     (emit-cross-ref buffer ctx (sb-assem:label-position label) #x12))))
@@ -356,6 +395,8 @@ function so that a loader can renumber it."
         (:label-index
          (buffer-byte buffer #x41)                                        ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
+        (:flush (emit-flush buffer ctx (control-note-data note)))
+        (:reload (emit-reload buffer ctx))
         ((:func-begin :func-end :nlx-entry :terminator)
          nil)))))
 
@@ -407,6 +448,8 @@ function so that a loader can renumber it."
     (buffer-byte buffer #x41) (buffer-sleb128 buffer sb-vm:n-fixnum-tag-bits) ; i32.const
     (buffer-byte buffer #x76)                                             ; i32.shr_u
     (buffer-byte buffer #x21) (buffer-uleb128 buffer pc-local)            ; local.set $pc
+    ;; the unwind routine set the block's frame and code in the area
+    (emit-reload buffer ctx)
     (buffer-byte buffer #x0C) (buffer-uleb128 buffer (depth-of :loop))))  ; br $L
 
 (defun chunk-exit (buffer arm ctx)
@@ -523,11 +566,13 @@ with END) and the local declarations ((count . type) ...)."
          (n (length arms))
          ;; the three scratch locals VOPs may use (+SCRATCH-I32-LOCAL+ and
          ;; friends in macros.lisp), then $pc
-         (pc-local (+ (length params) sb-vm::+n-scratch-locals+))
+         (pc-local (+ (length params) sb-vm::+n-register-locals+ sb-vm::+n-scratch-locals+))
          (nlx-p (some (lambda (note) (eq (control-note-kind note) :nlx-entry)) notes))
-         ;; the scratch locals, $pc, the jump-table scratch local and (with
-         ;; non-local entries) $fp precede the caller's locals
-         (all-locals (list* '(1 . :i32) '(1 . :f32) '(1 . :f64)
+         ;; the register locals, the scratch locals, $pc, the jump-table
+         ;; scratch local and (with non-local entries) $fp precede the
+         ;; caller's locals
+         (all-locals (list* (cons sb-vm::+n-register-locals+ :i32)
+                            '(1 . :i32) '(1 . :f32) '(1 . :f64)
                             (cons (if nlx-p 3 2) :i32) locals))
          (buffer (make-octet-buffer)))
     ;; the structured encoding first (stackify.lisp); the dispatch loop
@@ -556,6 +601,8 @@ with END) and the local declarations ((count . type) ...)."
       (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load
       (buffer-uleb128 buffer (* sb-vm::cfp-offset sb-vm::n-word-bytes))
       (buffer-byte buffer #x21) (buffer-uleb128 buffer (+ pc-local 2)))   ; local.set $fp
+    ;; the register cache: the registers this function uses, from the area
+    (emit-reload buffer ctx)
     ;; the arm to start at: $pc is 0 unless the start is another arm or a
     ;; caller of the same component chose one through the entry-arm global
     (cond ((wasm-function-entry-arm-p function)
@@ -635,7 +682,18 @@ with END) and the local declarations ((count . type) ...)."
          (notes (remove-if-not (lambda (note) (range-contains-p (cons start end) (control-note-posn note)))
                                (segment-control-notes segment))))
     (assign-arms function (list (cons start end)) notes notes)
+    (setf (wasm-function-reg-mask function)
+          (register-mask (segment-register-uses segment) (list (cons start end))))
     (lower-function-body ctx :params params :locals locals)))
+
+(defun register-mask (uses ranges)
+  "The bit mask of the registers USES ((position . register)) touch
+within RANGES."
+  (let ((mask 0))
+    (loop for (position . register) in uses
+          when (some (lambda (r) (range-contains-p r position)) ranges)
+          do (setf mask (logior mask (ash 1 register))))
+    mask))
 
 ;;;; Codegen interface
 ;;;;
@@ -724,6 +782,7 @@ routine is defined in the segment itself."
 chunks), returning them. BLOCK-LABELS are the labels of the compiler's
 blocks (EMIT-NOTE-LOWERING)."
   (let* ((base (+ sb-vm::+n-runtime-imports+ (length asm-routines)))
+         (uses (segment-register-uses segment))
          (ctx (make-fctx :bytes (sb-assem:segment-contents-as-vector segment)
                          :functions functions
                          :function-base base
@@ -747,7 +806,8 @@ blocks (EMIT-NOTE-LOWERING)."
                          (lambda (note)
                            (some (lambda (r) (range-contains-p r (control-note-posn note))) ranges))
                          notes)))
-        (assign-arms function ranges all-notes notes)))
+        (assign-arms function ranges all-notes notes)
+        (setf (wasm-function-reg-mask function) (register-mask uses ranges))))
     ;; the arms other than a start that another function enters
     (setf (fctx-entry-arms ctx) (component-entry-arms ctx))
     ;; then the bodies: a body that enters another function at an arm
@@ -808,7 +868,7 @@ of their first block. Returns (values functions assembly-routine-names)."
       ;; header (and the alignment padding before it) is data, not code
       (dolist (entry entries)
         (let* ((label (sb-assem:label-position (sb-c::entry-info-offset entry)))
-               (position (+ label (* sb-vm:simple-fun-insts-offset sb-vm:n-word-bytes)))
+               (position (+ label (* sb-vm:simple-fun-insts-offset sb-vm::n-word-bytes)))
                (function (find-if (lambda (f)
                                     (some (lambda (chunk) (or (range-contains-p chunk label)
                                                               (= (car chunk) label)))

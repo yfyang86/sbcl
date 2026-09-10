@@ -54,11 +54,15 @@
 ;;;;
 ;;;; Registers are word slots in the register area of the thread
 ;;;; structure (see vm.lisp). $thread is Wasm global 0 in every module the
-;;;; backend emits. LOAD-REG pushes a register's value on the Wasm
-;;;; operand stack; STORE-REG pops the operand stack into a register.
-;;;; These two macros are the only place that knows where registers
-;;;; live, so that caching registers in Wasm locals later is a local
-;;;; change (doc/wasm-port/02-design.md, 2.4).
+;;;; backend emits. Within a function, a register lives in a Wasm local
+;;;; (REG.GET and REG.SET, insts.lisp); the function assembler reads the
+;;;; locals from the area at every entry and writes them back before a
+;;;; call, a return, a throw or a runtime entry (doc/wasm-port/02-design.md,
+;;;; 2.4, the register caching), so the area is the truth at those points
+;;;; and the runtime, the collector and the callee see every register.
+;;;; LOAD-REG pushes a register's value on the Wasm operand stack;
+;;;; STORE-REG pops the operand stack into a register. The float
+;;;; registers stay in the area.
 
 (defconstant +thread-global+ 0)
 
@@ -74,16 +78,14 @@
 
 (defmacro load-reg (tn)
   "Push the word in register TN."
-  `(progn
-     (inst global.get +thread-global+)
-     (inst i32.load (register-byte-offset (tn-offset ,tn)))))
+  `(inst reg.get (tn-offset ,tn)))
 
 (defmacro store-reg (tn &body value-forms)
-  "Evaluate VALUE-FORMS, which push one i32, and store it into register TN."
+  "Evaluate VALUE-FORMS, which push one i32 (or push it before, with no
+forms), and store it into register TN."
   `(progn
-     (inst global.get +thread-global+)
      ,@value-forms
-     (inst i32.store (register-byte-offset (tn-offset ,tn)))))
+     (inst reg.set (tn-offset ,tn))))
 
 ;;; Instruction-like macros.
 (defmacro move (dst src)

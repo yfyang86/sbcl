@@ -157,15 +157,16 @@
   (when (zerop *block-depth*)
     (note-control segment :terminator nil nil)))
 
-(macrolet ((define-simple (name opcode &optional terminator)
+(macrolet ((define-simple (name opcode &optional terminator flush)
              `(define-instruction ,name (segment)
-                (:emitter (emit-byte segment ,opcode)
+                (:emitter ,@(when flush '((note-flush segment)))
+                          (emit-byte segment ,opcode)
                           ,@(when terminator '((note-terminator segment)))))))
   (define-simple unreachable #x00 t)
   (define-simple nop #x01)
   (define-simple else #x05)
-  (define-simple return #x0F t)
-  (define-simple throw_ref #x0A t)
+  (define-simple return #x0F t t)
+  (define-simple throw_ref #x0A t t)
   (define-simple drop #x1A)
   (define-simple select #x1B))
 
@@ -195,12 +196,35 @@
    (dolist (d depths) (emit-uleb128 segment d))
    (emit-uleb128 segment default)))
 
+;;; The register caching (func-asm.lisp): the callee, the runtime and a
+;;; foreign function read the register area, so the registers a function
+;;; keeps in locals are written back before a call (a :FLUSH note, all of
+;;; the function's registers, or only those of MASK) and read again after
+;;; it (a :RELOAD note). The allocation entry points (imports 1 and 2,
+;;; +IMPORT-ALLOC+ and +IMPORT-ALLOC-LIST+ in macros.lisp) neither
+;;; collect nor run Lisp (a collection waits for the next safe point),
+;;; so only the frame registers are written back for them; the internal
+;;; error entry point (0) never returns.
+(defconstant +frame-register-mask+ #xFF
+  "NARGS, CSP, CFP, OCFP, NFP, NSP, LEXENV and CODE (wasm-lispregs.h).")
+(defun note-flush (segment &optional mask)
+  (note-control segment :flush nil mask))
+(defun note-reload (segment)
+  (note-control segment :reload nil nil))
+
 (define-instruction call (segment func)
   (:emitter
-   (emit-byte segment #x10)
-   (etypecase func
-     (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
-     (integer (emit-uleb128 segment func)))))
+   (let ((import (and (integerp func) (< func 4) func)))
+     (case import
+       ((1 2) (note-flush segment +frame-register-mask+))
+       (t (note-flush segment)))
+     (emit-byte segment #x10)
+     (etypecase func
+       (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
+       (integer (emit-uleb128 segment func)))
+     (case import
+       ((0 1 2) nil)
+       (t (note-reload segment))))))
 ;;; The type index may be a :FUNCTION-TYPE fixup whose name is
 ;;; (params results); the module writer resolves it.
 (defun emit-type-index (segment type-index)
@@ -210,11 +234,14 @@
 
 (define-instruction call_indirect (segment type-index &optional (table 0))
   (:emitter
+   (note-flush segment)
    (emit-byte segment #x11)
    (emit-type-index segment type-index)
-   (emit-uleb128 segment table)))
+   (emit-uleb128 segment table)
+   (note-reload segment)))
 (define-instruction return_call (segment func)
   (:emitter
+   (note-flush segment)
    (emit-byte segment #x12)
    (etypecase func
      (fixup (note-fixup segment :leb128 func) (emit-fixed-sleb128-32 segment 0))
@@ -222,6 +249,7 @@
    (note-terminator segment)))
 (define-instruction return_call_indirect (segment type-index &optional (table 0))
   (:emitter
+   (note-flush segment)
    (emit-byte segment #x13)
    (emit-type-index segment type-index)
    (emit-uleb128 segment table)
@@ -245,8 +273,32 @@
        (:catch-all-ref (emit-byte segment #x03) (emit-uleb128 segment (second c)))))
    (incf *block-depth*)))
 (define-instruction throw (segment tag)
-  (:emitter (emit-byte segment #x08) (emit-uleb128 segment tag)
+  (:emitter (note-flush segment)
+            (emit-byte segment #x08) (emit-uleb128 segment tag)
             (note-terminator segment)))
+
+;;;; Register access (the register caching, doc/wasm-port/02-design.md
+;;;; 2.4): a Lisp register is a Wasm local of the function between the
+;;;; flush points above; LOAD-REG and STORE-REG (macros.lisp) expand to
+;;;; these, which also record the use, so that the function assembler
+;;;; knows the registers each function keeps in locals and writes back.
+;;;; The register locals are the first locals of every Lisp function
+;;;; (+REGISTER-LOCALS-BASE+, one per register slot, func-asm.lisp).
+
+(defconstant +register-locals-base+ 0)
+
+(defun note-register-use (segment n)
+  (push (make-control-note :reg-use (sb-assem::segment-current-index segment) nil n)
+        (sb-assem::segment-backend-data segment)))
+
+(define-instruction reg.get (segment n)
+  (:emitter (note-register-use segment n)
+            (emit-byte segment #x20)
+            (emit-uleb128 segment (+ +register-locals-base+ n))))
+(define-instruction reg.set (segment n)
+  (:emitter (note-register-use segment n)
+            (emit-byte segment #x21)
+            (emit-uleb128 segment (+ +register-locals-base+ n))))
 
 ;;;; Reference instructions
 
@@ -432,7 +484,9 @@
 (defstruct (control-note (:constructor make-control-note (kind posn labels data))
                          (:copier nil))
   ;; :jump :jump-if :jump-table :func-begin :func-end :call-label
-  ;; :tail-call-label :label-index :nlx-entry :terminator
+  ;; :tail-call-label :label-index :nlx-entry :terminator :flush :reload
+  ;; (and :reg-use, which is not a note in the byte stream but a record of
+  ;; a register access, see NOTE-REGISTER-USE)
   (kind nil :type symbol :read-only t)
   ;; byte position in the finalized segment of the note's placeholder byte
   (posn 0 :type index :read-only t)
@@ -454,7 +508,14 @@
 ;;; Return the control notes of a finalized SEGMENT in emission order,
 ;;; which is also position order.
 (defun segment-control-notes (segment)
-  (reverse (sb-assem::segment-backend-data segment)))
+  (reverse (remove :reg-use (sb-assem::segment-backend-data segment)
+                   :key #'control-note-kind)))
+
+;;; The register accesses of a finalized SEGMENT: (position . register).
+(defun segment-register-uses (segment)
+  (loop for note in (sb-assem::segment-backend-data segment)
+        when (eq (control-note-kind note) :reg-use)
+        collect (cons (control-note-posn note) (control-note-data note))))
 
 ;;; Unconditional branch to LABEL. A branch between the compiler's
 ;;; blocks (the BRANCH VOP and the conditional VOPs, whose generators run
