@@ -136,9 +136,11 @@
 
 (defvar *wasm-loaded-modules* nil
   "The modules a saved core instantiates when it starts, as
-(table-base . bytes), newest first (wasm_load_core_module). Set by
-WASM-MERGE-LOADED-MODULES at save time: the one module holding every
-function loaded at run time.")
+(table-base . bytes), newest first (wasm_load_core_module): the modules
+installed at run time, replaced at save time by the one module holding
+every function loaded so far (WASM-MERGE-LOADED-MODULES), after which
+the code compiled on the way to the core file (the packages' hash
+functions, for one) adds its own again.")
 
 (defvar *wasm-code-blobs* nil
   "Every code blob installed at run time (WASM-INSTALL-CODE), as
@@ -231,9 +233,11 @@ in its simple-fun's self slot."
         (let ((bytes (wasm-module-bytes module)))
           (with-pinned-objects (bytes)
             (when (zerop (%wasm-instantiate-module (vector-sap bytes) (length bytes) table-base))
-              (error "the host could not instantiate the module of ~S" code))))
-        ;; kept for SAVE-LISP-AND-DIE (WASM-MERGE-LOADED-MODULES)
-        (push (cons table-base octets) *wasm-code-blobs*)
+              (error "the host could not instantiate the module of ~S" code)))
+          ;; kept for SAVE-LISP-AND-DIE: the blob for the merge, the module
+          ;; for a core saved after the merge
+          (push (cons table-base octets) *wasm-code-blobs*)
+          (push (cons table-base bytes) *wasm-loaded-modules*))
         ;; the simple-funs' self slots: table indices. ENTRIES is in
         ;; IR2-COMPONENT-ENTRIES order, numbered from the last simple-fun
         ;; of the code object down (FOP-FUN-ENTRY, genesis).
@@ -252,7 +256,9 @@ in its simple-fun's self slot."
 ;;; one module, which the saved core instantiates in place of the
 ;;; one-per-code-object modules of the session (their number: a warm
 ;;; load's is over seven thousand; each is a compilation and a memory
-;;; mapping at startup). The blobs stay, for the next save.
+;;; mapping at startup). The blobs stay, for the next save; the modules
+;;; installed after this (before the core is written) add themselves to
+;;; *WASM-LOADED-MODULES* again.
 (defun wasm-merge-loaded-modules ()
   (when *wasm-code-blobs*
     (let* ((entries (sort (copy-list *wasm-code-blobs*) #'< :key #'car))
