@@ -319,8 +319,8 @@ function so that a loader can renumber it."
         (buffer-byte buffer #x36) (buffer-byte buffer 2)                    ; i32.store align=2
         (buffer-uleb128 buffer (* i sb-vm::n-word-bytes))))))
 
-(defun emit-reload (buffer ctx)
-  (let ((registers (wasm-function-reg-mask (fctx-function ctx))))
+(defun emit-reload (buffer ctx &optional mask)
+  (let ((registers (logand (wasm-function-reg-mask (fctx-function ctx)) (or mask -1))))
     (dotimes (i sb-vm::+n-register-locals+)
       (when (logbitp i registers)
         (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)   ; global.get thread
@@ -396,7 +396,7 @@ function so that a loader can renumber it."
          (buffer-byte buffer #x41)                                        ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
         (:flush (emit-flush buffer ctx (control-note-data note)))
-        (:reload (emit-reload buffer ctx))
+        (:reload (emit-reload buffer ctx (control-note-data note)))
         ((:func-begin :func-end :nlx-entry :terminator)
          nil)))))
 

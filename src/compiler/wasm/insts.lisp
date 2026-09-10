@@ -165,10 +165,18 @@
   (define-simple unreachable #x00 t)
   (define-simple nop #x01)
   (define-simple else #x05)
-  (define-simple return #x0F t t)
   (define-simple throw_ref #x0A t t)
   (define-simple drop #x1A)
   (define-simple select #x1B))
+
+;;; RETURN writes the function's registers back; MASK restricts it to
+;;; what the caller reads (the unknown-values convention's return VOPs
+;;; pass +LISP-RETURN-FLUSH-MASK+; a known-values return leaves its
+;;; values in whatever registers the caller chose and passes none).
+(define-instruction return (segment &optional mask)
+  (:emitter (note-flush segment mask)
+            (emit-byte segment #x0F)
+            (note-terminator segment)))
 
 (define-instruction end (segment)
   (:emitter (emit-byte segment #x0B)
@@ -207,10 +215,21 @@
 ;;; error entry point (0) never returns.
 (defconstant +frame-register-mask+ #xFF
   "NARGS, CSP, CFP, OCFP, NFP, NSP, LEXENV and CODE (wasm-lispregs.h).")
+;;; A full call (CALL_INDIRECT with the Lisp function type, index 0 in
+;;; every module) reads only what the convention passes (call.lisp): the
+;;; frame registers, A0..A3 and RA; the values live across the call are
+;;; on the stack (the call VOPs are :SAVE-P T). It returns A0..A3, NARGS,
+;;; CSP, CFP and OCFP; NFP and NSP are included on the way back for the
+;;; number stack.
+(defconstant +lisp-call-flush-mask+ #x20003CFF)
+(defconstant +lisp-call-reload-mask+ #x3C3F)
+(defconstant sb-vm::+lisp-return-flush-mask+ #x3C3F
+  "What a full call's caller reads after the call: the RETURN VOPs of
+the unknown-values convention pass it to RETURN.")
 (defun note-flush (segment &optional mask)
   (note-control segment :flush nil mask))
-(defun note-reload (segment)
-  (note-control segment :reload nil nil))
+(defun note-reload (segment &optional mask)
+  (note-control segment :reload nil mask))
 
 (define-instruction call (segment func)
   (:emitter
@@ -234,11 +253,12 @@
 
 (define-instruction call_indirect (segment type-index &optional (table 0))
   (:emitter
-   (note-flush segment)
-   (emit-byte segment #x11)
-   (emit-type-index segment type-index)
-   (emit-uleb128 segment table)
-   (note-reload segment)))
+   (let ((lisp (eql type-index 0)))
+     (note-flush segment (and lisp +lisp-call-flush-mask+))
+     (emit-byte segment #x11)
+     (emit-type-index segment type-index)
+     (emit-uleb128 segment table)
+     (note-reload segment (and lisp +lisp-call-reload-mask+)))))
 (define-instruction return_call (segment func)
   (:emitter
    (note-flush segment)
@@ -249,7 +269,7 @@
    (note-terminator segment)))
 (define-instruction return_call_indirect (segment type-index &optional (table 0))
   (:emitter
-   (note-flush segment)
+   (note-flush segment (and (eql type-index 0) +lisp-call-flush-mask+))
    (emit-byte segment #x13)
    (emit-type-index segment type-index)
    (emit-uleb128 segment table)

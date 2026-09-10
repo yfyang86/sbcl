@@ -250,7 +250,7 @@ back edge between the compiler's blocks."
          (buffer-byte buffer #x41)                                              ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
         (:flush (emit-flush buffer ctx (control-note-data note)))
-        (:reload (emit-reload buffer ctx))
+        (:reload (emit-reload buffer ctx (control-note-data note)))
         ((:func-begin :func-end :nlx-entry :terminator)
          nil))
       cfg)))

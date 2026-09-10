@@ -7,7 +7,10 @@
 # driver compiles with each core to obj/wasm-build/cl-bench/{a,b}-fasl/.
 # An argument ending in .results is a previous run's result file
 # (obj/wasm-build/cl-bench/a.results, copied) used instead of a run.
-# CL_BENCH_DIR names the cl-bench checkout (default /home/user/tools/cl-bench).
+# CL_BENCH_DIR names the cl-bench checkout (default /home/user/tools/cl-bench);
+# CL_BENCH_HEAP the dynamic space (default 1GB: string-concat's 36 MB
+# requests exhaust the 512 MB default when they land between the
+# collection trigger and the next safe point).
 # A benchmark that fails or is skipped in either run is listed and left
 # out of the mean.
 set -e
@@ -22,7 +25,8 @@ run() { # tag core names...
         *.results) cp "$core" "$out/$tag.results"; return ;;
     esac
     rm -rf "$out/$tag-fasl"
-    "$here/tools-for-build/wasm-sbcl.sh" --core "$core" --script "$here/tests/wasm/bench/cl-bench-driver.lisp" \
+    "$here/tools-for-build/wasm-sbcl.sh" --core "$core" --dynamic-space-size "${CL_BENCH_HEAP:-1GB}" \
+        --script "$here/tests/wasm/bench/cl-bench-driver.lisp" \
         "$bench_dir" "$out/$tag-fasl" "$scale" "$@" > "$out/$tag.log" 2>&1 || true
     grep -a "^RESULT\|^COMPILE" "$out/$tag.log" > "$out/$tag.results" || true
 }
