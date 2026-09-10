@@ -39,6 +39,7 @@ Pinned tool versions (`tools-for-build/wasm-env.sh`):
 | wasi-sdk | 27 | compiling the runtime and test C programs to `wasm32-wasip1` |
 | wasmtime | 45.0.0 | running level-0/level-1 tests from the command line (the host embeds the same crate) |
 | wasm-tools | 1.240.0 | validating and printing modules |
+| binaryen (optional) | 123 | `wasm-opt` on the core module (the `opt` step) |
 | host SBCL | 2.4.8 (any recent SBCL works) | running the cross-compiler and genesis |
 | Rust (cargo) | stable | building the host |
 | Node.js (optional) | 22 | the V8 loader check in the Sprint 5 UAT |
@@ -118,10 +119,11 @@ Steps, in the order `all` runs them:
 
 | Step | What it does | Time | Products |
 |---|---|---|---|
-| `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo; downloads missing pinned releases (`--no-download` to only check) | seconds | |
+| `toolchain` | checks wasi-sdk, wasmtime, wasm-tools, host SBCL, cargo (and binaryen, optional); downloads missing pinned releases (`--no-download` to only check) | seconds | |
 | `host` | `cargo build --release -p sbcl-wasm-host` | 1–3 min first time | `wasm/target/release/sbcl-wasm` |
 | `grovel` | compiles `tools-for-build/grovel-headers.c` for wasm32-wasi and runs it under the host to check or regenerate the target's C constants (`crossbuild-runner/backends/wasm/stuff-groveled-from-headers.lisp`); needs the genesis headers, so it runs after `lisp` (as upstream's make-target-1 does); if the constants changed it says so and the Lisp side must be rebuilt | seconds | the groveled file |
 | `lisp` | writes `version.lisp-expr` if missing (a generated file the cross-compiler reads; `generate-version.sh` when the clone has the `sbcl-*` tags, else the base release plus the commit), then crossbuild pass-1 (the cross-compiler in the host SBCL) then pass-2 (cross-compiles the tree, runs genesis) | 4 + 15 min | `obj/xbuild/wasm/xc.core`, `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, `obj/xbuild/wasm/genesis-headers/` |
+| `opt` | (not in `all`) binaryen's `wasm-opt -O2 -g` on `obj/xbuild/wasm-core.wasm`, the original kept as `wasm-core.wasm.orig`; run it before `warm` so that the saved cores carry the optimized module (12% smaller; Wasmtime compiles the changed module once, then caches it). The CI job runs it. | 30 s | the optimized `obj/xbuild/wasm-core.wasm` |
 | `runtime` | `tools-for-build/wasm-build-runtime.sh`: genesis headers into `src/runtime/genesis/`, target symlinks, generated linkage table, `make sbcl.wasm` with wasi-sdk | 1 min | `src/runtime/sbcl.wasm` |
 | `smoke` | `sbcl.wasm --version` and `--help` under the host | seconds | |
 | `test` | level-0 suite; rebuilds the after-xc core and runs the level-1 differential suite | 12 min | logs in `obj/wasm-build/` |
@@ -364,7 +366,10 @@ tools-for-build/wasm-build-runtime.sh          build src/runtime/sbcl.wasm
 tools-for-build/wasm-linkage-table.sh          generate the runtime's linkage table
 tools-for-build/wasm_run.sh                    run a module under the host
 src/compiler/wasm/                             backend: parms, vm, insts (encoder), module (writer),
-                                               func-asm (function assembler), VOP files
+                                               func-asm (function assembler: arms, the dispatch loop),
+                                               stackify (structured control flow, the default encoding),
+                                               target-insts (the disassembler), VOP files
+tests/wasm/bench/                              cl-bench under the port: the driver and the two-core comparison
 src/assembly/wasm/                             assembly routines (throw, unwind, trampolines)
 src/compiler/generic/genesis.lisp              #+wasm: core module, table indices, map
 src/compiler/dump.lisp, src/code/load.lisp     fop-wasm-code (Wasm blobs in fasls)

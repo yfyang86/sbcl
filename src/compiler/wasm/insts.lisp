@@ -505,7 +505,10 @@
 ;;; A :TERMINATOR note (NOTE-TERMINATOR above) follows an instruction
 ;;; that never falls through, emitted outside any block of its VOP: the
 ;;; compiler's block ends there, and the function assembler knows the
-;;; bytes after it in the same arm are dead.
+;;; bytes after it in the same arm are dead. GENERATE-CODE (codegen.lisp)
+;;; ends a block the compiler knows does not fall through with one.
+(defun emit-block-terminator ()
+  (inst unreachable))
 
 ;;; marks LABEL as a non-local entry of the current function, which then
 ;;; gets an exception handler (see func-asm.lisp)

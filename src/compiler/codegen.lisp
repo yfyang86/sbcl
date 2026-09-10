@@ -344,7 +344,7 @@
                      (and succ (null (cdr succ))
                           (eq (car succ) (component-tail component)))))
           (assemble (:code 'nil)
-            (inst unreachable)))))
+            (sb-wasm-asm::emit-block-terminator)))))
     #+(or arm64 x86-64)
     (when (and *do-instcombine-pass*
                (policy (block-home-lambda
