@@ -39,7 +39,20 @@ point); a timer unscheduling itself hitting a recursive scheduler lock;
 (`tests/wasm-ansi-tests.sh` builds it from `output/sbcl.core`): every
 pending test in one process, the `INVOKE-DEBUGGER` tests left out.
 
-ANSI-RESULTS
+Result on the final core: 21,752 tests, 137 failures, compared
+with the expected-failure list of `ansi-tests.sh` (its `#+wasm` entries
+included, before this sprint's trimming of that list): 3 failures
+outside the list, all the one-process run's own (`FORMAT.E.26`, which
+`ansi-tests.sh` itself discounts; `LOAD-PATHNAME.1` and
+`LOAD-TRUENAME.1`, from the changed default directory), and 13 entries
+of the list passing: `FILE-AUTHOR.1-7`, `LISTEN.7` and
+`FILE-LENGTH.ERROR.3`, which this sprint removed from the `#+wasm`
+entries, and the four `INVOKE-DEBUGGER` tests this run leaves out. The
+55 state-dependent failures of the second baseline do not occur
+(`develop.md`, section 1). An earlier run of the same check on a
+previous build of the sprint found `SLEEP.2-13` failing
+(`sb_nanosleep_float` lost to an `#ifdef`, fixed) and, before that, the
+suite refusing to load (the stale fasls, `develop.md` section 4).
 
 ## 3. Levels 0 and 1
 
