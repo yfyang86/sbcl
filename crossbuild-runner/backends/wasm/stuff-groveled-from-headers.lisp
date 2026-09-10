@@ -15,7 +15,7 @@
 ;;; poll()
 (defconstant pollin 1) ; #x1
 (defconstant pollout 2) ; #x2
-(defconstant pollpri 2) ; #x2
+(defconstant pollpri 512) ; #x200
 (defconstant pollhup 8192) ; #x2000
 (defconstant pollnval 16384) ; #x4000
 (defconstant pollerr 4096) ; #x1000
