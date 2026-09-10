@@ -163,12 +163,15 @@ Findings on the way:
 
 Pass-1 (30 s: the host fasls of the unchanged files are reused), pass-2
 and genesis (5 min), the runtime (7 s), the warm load: 3 min 9 s for
-the compile phase and 40 s for the load and save — the warm compile
-took about 8 minutes on the dispatch-loop build (Sprint 11's record),
-the first measure of the stackifier's effect: the target compiling
-itself runs about 2.5× faster. The products: `obj/xbuild/wasm.core`,
-`obj/xbuild/wasm-core.wasm` (38.4 MB before `opt`), `output/sbcl.core`
-(77.4 MB) with `output/sbcl-core.wasm`.
+the compile phase and 40 s for the load and save (Sprint 11's record
+says "about 8 minutes" for the warm load of the dispatch-loop build;
+the compile phase on the optimized module took the same 3 minutes).
+The products: `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`
+(38.4 MB before `opt`, 33.8 MB after), `output/sbcl.core` (77.4 MB)
+with `output/sbcl-core.wasm`. The cores kept for the comparison:
+`obj/wasm-build/sbcl-s11.core` (the dispatch loop, Sprint 11's build),
+`sbcl-s12.core` (the stackifier), `sbcl-s12opt.core` (the stackifier
+and `wasm-opt`), each with its `-core.wasm`.
 
 One thing not to do again: the after-xc core build (the level-1 tests)
 and pass-2 both write `obj/xbuild/wasm/from-xc/`; run concurrently,
@@ -180,6 +183,34 @@ the first died on a fasl the second had just written.
 the running Lisp (stand-ins for the two things it takes from ASDF and
 trivial-garbage) and runs each benchmark a scaled number of times,
 printing `RESULT name runs seconds`; `cl-bench-compare.sh` runs it
-under two cores and prints the ratios and their geometric mean. The
-measurements: `test.md`, section 3, and
+under two cores and prints the ratios and their geometric mean (a
+`.results` file of an earlier run stands in for a core). Every run
+count divided by 10, a 600 s limit per benchmark (none hit it), all 65
+benchmarks but `walk-list/mess` (disabled for SBCL by cl-bench itself),
+one run each, the machine otherwise idle. The tables:
 `doc/wasm-port/baselines/sprint-12-cl-bench.md`.
+
+| Comparison | Geometric mean of the time ratios (62 benchmarks) |
+|---|---|
+| dispatch loop (Sprint 11) / stackifier | 1.18 |
+| stackifier / stackifier + `wasm-opt` | 1.01 |
+
+The stackifier makes the whole suite 18% faster on the geometric mean,
+between 1.0 and 1.5 on all but three tiny ones (`fft`, `slurp-lines`,
+`load-fasl`: milliseconds, file-cache noise), the call-heavy kernels at
+1.2–1.3 (`tak` 1.19, `fib` 1.25, `ackermann` 1.29, `puzzle` 1.37) and
+the compile of the Gabriel benchmarks at 1.41. That is well short of
+the factor S0.3 predicted (1.66–4.45 on the kernels, about 2 for
+loops); the prediction measured control flow alone, and the compiled
+code's other costs are unchanged: the register file in memory (every
+VOP reads and writes the thread structure through `global.get 0;
+i32.load; …; i32.store`), full calls through the table
+(`call_indirect`), the allocation and type-check slow paths in the
+runtime, and generic arithmetic (`crc40` and `string-concat` spend
+their time there and gain 18% and 28%). `wasm-opt` on the cold module
+changes nothing measurable at run time (its gain is the 12% of size);
+its passes see the same memory traffic. Which names the next measure:
+caching the registers in Wasm locals between safe points
+(`02-design.md`, 2.4, item 3; the plan's phase 3 lists "stackifier and
+register caching" together) is what stands between the port and the
+predicted factor, and the same benchmark driver measures it.
