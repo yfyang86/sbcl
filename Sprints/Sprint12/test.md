@@ -24,7 +24,7 @@ one process per file): 403 files.
 |---|---|---|
 | Sprint 10's baseline (`doc/wasm-port/baselines/sprint-9.txt`) | 60 | 167 |
 | this build, first run (stale contribs) | 63 | 216 |
-| this build, final run | see section 5 | |
+| this build, final run (the disassembler fix, the contribs rebuilt) | 55 | 154 |
 
 The first run's differences from the baseline, each examined:
 
@@ -74,7 +74,7 @@ the suite's core rebuilt from `output/sbcl.core`):
 | Run | Tests | Failures | Crashed | Unexpected |
 |---|---|---|---|---|
 | first run of this build | 21,752 | 135 | 4 (the `INVOKE-DEBUGGER` four) | 1: `FILE-LENGTH.ERROR.3` |
-| final run | see section 5 | | | |
+| final run | 21,752 | 135 | 4 (the same) | 0 |
 
 `FILE-LENGTH.ERROR.3` passed in Sprint 11's one-process run, which
 took it off the `#+wasm` expected list; in the one-test-per-process
@@ -92,8 +92,20 @@ SBCL on the same machine.
 
 ## 5. The final runs
 
-Filled in after the rebuild with the disassembler fix (section 2's
-last row, section 3's last row).
+On the core of the rebuild with the disassembler fix and its contribs
+(`obj/wasm-build/regress-s12b.log`, `ansi-s12b.log`;
+`doc/wasm-port/baselines/sprint-12.txt` is the regression baseline):
+
+- Regression suite: 403 files, 55 did not pass (Sprint 10's baseline:
+  60), 154 unexpected test failures (167). Against the baseline's
+  test list the only additions are `block-compile.impure.lisp`
+  (section 2: on Sprint 11's core too) and the two tests whose names
+  carry a scratch file's name (`SPLAT-NIL`,
+  `DISASSEMBLE-ANNOTATE-FUNS`: the same tests, a different temporary
+  name). `DISASSEMBLE-MACRO` and `CACHED-TOKENIZED-STRING` pass; the
+  contrib files pass but `sb-introspect`, as in the baseline.
+- ANSI suite: 21,752 tests, 135 failures and 4 crashes, all on the
+  expected list; 0 unexpected, 0 expected-but-passing.
 
 ## 6. Checked by hand
 

@@ -15,6 +15,11 @@ geometric mean improves by the factor S0.3 predicted; no function falls
 back to the dispatch loop except the irreducible ones, counted in the
 build log.
 
-Status: in progress. Records: `develop.md`, `test.md`, `verify.md`.
-The sprint branch `sprint12` is merged into `wasm-dev` with `--no-ff`
-when its records are complete.
+Status: done. The stackifier is the default encoding (34 fallbacks in
+pass-2, 61 in the warm load, all loops with two entries), `wasm-opt`
+runs in the build's `opt` step, both suites are at or better than the
+last baseline, cl-bench improved by 1.18 on the geometric mean against
+the factor of about 2 predicted (the criterion not met, with the
+reason and the next measure in `verify.md`). Records: `develop.md`,
+`test.md`, `verify.md`; the baselines `doc/wasm-port/baselines/sprint-12.txt`
+and `sprint-12-cl-bench.md`.
