@@ -183,7 +183,12 @@ every blob into one module (`WASM-MERGE-LOADED-MODULES`: the routine
 imports of all, then each blob's functions at their table range, the
 same patching as at install time, one element segment per blob), which
 becomes the one entry of `*wasm-loaded-modules*`; the runtime's startup
-is unchanged. The blobs stay for the next save.
+is unchanged. The blobs stay for the next save. The first saved core
+trapped at its first symbol lookup: the packages' perfect-hash
+functions are compiled on the way to the core file, after `DEINIT`, and
+the version that kept only blobs lost their modules; installs keep
+their module in `*wasm-loaded-modules*` as well, so a core saved after
+the merge carries the merged module and the few compiled after it.
 
 ## 6. The rest
 
