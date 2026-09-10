@@ -14,11 +14,11 @@ job's or the next sprint's.
 | the one cause behind 55 ANSI failures (the generator's changing answer) | the failures are gone in this build: the whole suite in one process, 21,752 tests, 146 failures, all in the expected list but four that are the one-process run's own (`develop.md`, section 1); the stray write's victim moved with the runtime's layout and the writer was not identified: on the backlog with two detectors that cost nothing when off |
 | executable cores (`banner`, `save6`, `save7`) | met: a launcher script with the core appended; the three files pass; a double dereference in `FOREIGN-SYMBOL-SAP` found and fixed on the way |
 | a control-stack guard (`exhaust`) | met: explicit limits checked by the compiled code at every frame allocation and binding, the runtime's guard handler, `storage-condition` in the handler and restored after; `exhaust.impure.lisp` passes |
-| timers through the host (`timer`, `with-timeout`, deadlines) | met: the runtime's deadline, the host's epoch tick, the safe point's delivery with deferral, sleeps cut at the deadline, and a safe point at every loop back edge so a loop without calls sees the timer; `timer.impure.lisp` and `deadline.impure.lisp` pass (the deadline tests that wait on a child are tagged: nothing interrupts the host's wait) |
+| timers through the host (`timer`, `with-timeout`, deadlines) | met: the runtime's deadline, the host's epoch tick, the safe point's delivery with deferral, sleeps cut at the deadline, the timer functions queued past the scheduler lock, and a safe point at every loop back edge (a backward branch to a block label) so a loop without calls sees the timer; `timer.impure.lisp` (all 16 tests) and `deadline.impure.lisp` pass (the deadline tests that wait on a child are tagged: nothing interrupts the host's wait) |
 | merging the saved modules (startup, mapping count) | met: one module per saved core (`wasm-merge-loaded-modules`), 7,138 modules before |
 | the CI job `linux-wasm.yml` | written: tool chain, host, cross build, runtime, warm load, contribs, levels 0–1, both suites; it has not run on GitHub from this tree |
 | the smaller items | `poll` on a file (a regular file is always ready), `file-author` without a user database; the `arith-2` arithmetic bugs and `INVOKE-DEBUGGER.1` under `--disable-debugger` remain |
-| the skip list under 150 forms with reasons | `:skipped-on :wasm` forms: see `test.md` (the count of the tree); every one carries a reason |
+| the skip list under 150 forms with reasons | met: 139 `:skipped-on :wasm` forms and file skips in the tree, each with a reason in a comment (`test.md`) |
 
 ## 2. What the sprint taught
 
