@@ -149,9 +149,13 @@ deferred `SIGALRM` handler would. A sleep is cut into slices at the
 deadline (`sb_nanosleep`), and the timers run from the slice's end, a
 foreign call being a safe point as well, so `(with-timeout 0.5 (sleep
 3))` signals at half a second as the interrupted `nanosleep` would.
-`RUN-TIMER` calls the timer's function here as `INTERRUPT-THREAD` would
-have run it (with interrupts disabled under `ALLOW-WITH-INTERRUPTS`);
-`:thread t` timers, which need a thread, are an error.
+`RUN-TIMER` queues the timer's function and `RUN-EXPIRED-TIMERS` runs
+the queue once the scheduler lock is released, as `INTERRUPT-THREAD`
+would have run it (with interrupts disabled under
+`ALLOW-WITH-INTERRUPTS`): the first version called the function at
+once, under the lock, and a timer unscheduling itself
+(`:repeat-and-unschedule`) hit a recursive lock. `:thread t` timers,
+which need a thread, are an error.
 `timer.impure.lisp` is untagged; the deadline tests that wait on a
 child process keep a tag (the host runs the child and waits for it, so
 no deadline can interrupt the wait: `run-program :wait nil` is on the

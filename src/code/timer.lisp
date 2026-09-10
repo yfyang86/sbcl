@@ -443,14 +443,15 @@ triggers."
         (thread (%timer-thread timer)))
     ;; The WebAssembly port: one thread, no signals. RUN-EXPIRED-TIMERS
     ;; is called from the safe point when the host's timer has expired
-    ;; (wasm-arch.c), with interrupts enabled; the function runs here
-    ;; as INTERRUPT-THREAD would run it, with interrupts disabled under
-    ;; ALLOW-WITH-INTERRUPTS.
+    ;; (wasm-arch.c), with interrupts enabled; the function is queued
+    ;; and runs once the scheduler lock is released (RUN-EXPIRED-TIMERS
+    ;; calls this under the lock, and a timer's function may schedule
+    ;; or unschedule timers), as INTERRUPT-THREAD would run it: with
+    ;; interrupts disabled under ALLOW-WITH-INTERRUPTS.
     #+wasm
     (if (eq t thread)
         (error "timers with :THREAD T are not supported on this target")
-        (without-interrupts
-          (allow-with-interrupts (funcall function))))
+        (push function *wasm-timer-functions*))
     #-wasm
     (if (eq t thread)
         (sb-thread:make-thread function :name (format nil "Timer ~A"
@@ -469,7 +470,17 @@ triggers."
 
 ;;; Called from the signal handler. We loop until all the expired timers
 ;;; have been run.
-(defun run-expired-timers ()
+#+wasm
+(progn
+  (defvar *wasm-timer-functions* '()
+    "The functions of the timers that expired, run after the scheduler lock is released.")
+  (defun run-expired-timers ()
+    (let ((*wasm-timer-functions* '()))
+      (%run-expired-timers)
+      (dolist (function (nreverse *wasm-timer-functions*))
+        (without-interrupts
+          (allow-with-interrupts (funcall function)))))))
+(defun #+wasm %run-expired-timers #-wasm run-expired-timers ()
   (loop
     (let ((now (get-internal-real-time))
           (timers nil))
