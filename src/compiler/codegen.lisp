@@ -318,6 +318,17 @@
                         (sb-vm::load-store-two-words vop (vop-next vop)))
                    (setf vop (vop-next vop)))
                   (t
+                   ;; the WebAssembly port: a branch emitted by a
+                   ;; conditional VOP or BRANCH is one between blocks
+                   ;; (a loop's back edge is a safe point, insts.lisp)
+                   #+wasm
+                   (progv '(sb-wasm-asm::*block-branch-p*)
+                       (list (or (eq (vop-name vop) 'branch)
+                                 (let ((types (vop-info-result-types (vop-info vop))))
+                                   (or (eq types :conditional)
+                                       (typep types '(cons (eql :conditional)))))))
+                     (funcall gen vop))
+                   #-wasm
                    (funcall gen vop)))))))
     #+(or arm64 x86-64)
     (when (and *do-instcombine-pass*
