@@ -118,7 +118,9 @@ static void wasm_check_indices(void);
 
 /*** calling into Lisp ***/
 
-typedef int32_t (*lisp_entry_fn)(void);
+/* the Lisp function type (func-asm.lisp, +LISP-FUNCTION-PARAMS+): NARGS
+ * and A0..A3 as parameters, the values flag as the result */
+typedef int32_t (*lisp_entry_fn)(int32_t, int32_t, int32_t, int32_t, int32_t);
 
 /* The table index a function object is entered through: a simple-fun's
  * self slot, or that of the simple-fun a closure or funcallable
@@ -190,7 +192,7 @@ lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs)
     if (getenv("SBCL_WASM_TRACE_CALLS"))
         fprintf(stderr, "; call_into_lisp: function %#x (table index %u), %d argument(s)\n",
                 (unsigned)fun, (unsigned)index, nargs);
-    int32_t flag = ((lisp_entry_fn)(uintptr_t)index)();
+    int32_t flag = ((lisp_entry_fn)(uintptr_t)index)(r[reg_NARGS], r[reg_A0], r[reg_A1], r[reg_A2], r[reg_A3]);
     /* 0: one value in A0; 1: several, the first in A0 (or none) */
     lispobj result = (flag == 0 || r[reg_NARGS] != 0) ? r[reg_A0] : NIL;
     r[reg_CSP] = (uint32_t)(uintptr_t)frame;

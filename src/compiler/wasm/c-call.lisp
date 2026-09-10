@@ -282,23 +282,26 @@
              (inst call_indirect (make-fixup (list params '(:i64)) :function-type))
              (inst f64.reinterpret_i64)
              (inst local.set +scratch-f64-local+)
-             (inst global.get +thread-global+)
-             (inst local.get +scratch-f64-local+)
-             (inst i64.reinterpret_f64)
-             (inst i64.store (register-byte-offset (tn-offset (first result-tns))))
+             (store-reg (first result-tns)
+               (inst local.get +scratch-f64-local+)
+               (inst i64.reinterpret_f64)
+               (inst i32.wrap_i64))
+             (store-reg (second result-tns)
+               (inst local.get +scratch-f64-local+)
+               (inst i64.reinterpret_f64)
+               (inst i64.const 32)
+               (inst i64.shr_u)
+               (inst i32.wrap_i64))
              (setf result-tns '()))
             (t
              (inst call_indirect (make-fixup (list params (mapcar #'alien-tn-valtype result-tns))
                                              :function-type))))
-      ;; the results are on the operand stack, last one on top; each is
-      ;; parked in a scratch local while its register address is pushed
+      ;; the results are on the operand stack, last one on top; a float
+      ;; is parked in a scratch local while its register address is pushed
       (dolist (tn (reverse result-tns))
         (sc-case tn
           ((signed-reg unsigned-reg sap-reg any-reg descriptor-reg)
-           (inst local.set +scratch-i32-local+)
-           (inst global.get +thread-global+)
-           (inst local.get +scratch-i32-local+)
-           (inst i32.store (register-byte-offset (tn-offset tn))))
+           (store-reg tn))
           (single-reg
            (inst local.set +scratch-f32-local+)
            (inst global.get +thread-global+)

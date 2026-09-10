@@ -188,10 +188,10 @@ step_grovel() {
 }
 
 step_host() {
-    say "host (wasm/crates/sbcl-wasm-host)"
-    (cd wasm && cargo build --release -p sbcl-wasm-host --bin sbcl-wasm) > "$log_dir/host.log" 2>&1 \
+    say "host (wasm/crates/sbcl-wasm-host) and the level-1 rig (wasm/crates/sbcl-wasm-test)"
+    (cd wasm && cargo build --release -p sbcl-wasm-host --bin sbcl-wasm -p sbcl-wasm-test) > "$log_dir/host.log" 2>&1 \
         || { tail -20 "$log_dir/host.log"; die "host build failed (see $log_dir/host.log)"; }
-    echo "built wasm/target/release/sbcl-wasm"
+    echo "built wasm/target/release/sbcl-wasm and sbcl-wasm-test"
 }
 
 # no dynamic loading on this target (doc/wasm-port/02-design.md, 2.9): pass-1 would add :os-provides-dlopen

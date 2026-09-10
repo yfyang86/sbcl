@@ -481,7 +481,14 @@
 ;;; table entry is already in the register FUNCTION and CODE holds the
 ;;; function object (a named call: the XEP finds the simple-fun in a
 ;;; closure itself, and the closure trampoline finds it in the fdefn).
+(defun emit-lisp-call-args ()
+  "Push the parameters of the Lisp function type: NARGS and A0..A3."
+  (load-reg nargs-tn)
+  (dolist (tn *register-arg-tns*)
+    (load-reg tn)))
+
 (defun emit-full-call (function tail-p &key index)
+  (emit-lisp-call-args)
   (cond (index
          (load-reg function))
         (t
@@ -775,7 +782,7 @@
     (move csp-tn cfp-tn)
     (move cfp-tn old-fp)
     (inst i32.const 0)
-    (inst return)))
+    (inst return +lisp-return-single-flush-mask+)))
 
 ;;; Do unknown-values return of a fixed number of values. The VALUES are
 ;;; required to be set up in the standard passing locations. NVALS is the
@@ -810,7 +817,7 @@
     (loop for i from nvals below register-arg-count
           do (load-immediate-word (nth i *register-arg-tns*) nil-value))
     (inst i32.const 1)
-    (inst return)))
+    (inst return +lisp-return-flush-mask+)))
 
 ;;; Do unknown-values return of an arbitrary number of values (passed on
 ;;; the stack from VALS-ARG, NVALS-ARG of them). The values are copied to
@@ -882,14 +889,14 @@
         (load-reg nvals)
         (inst i32.add))
       (inst i32.const 1)
-      (inst return)
+      (inst return +lisp-return-flush-mask+)
       ;; a single value
       (emit-label single)
       (loadw (first *register-arg-tns*) vals 0)
       (move csp-tn cfp-tn)
       (move cfp-tn old-fp)
       (inst i32.const 0)
-      (inst return))))
+      (inst return +lisp-return-single-flush-mask+))))
 
 ;;;; XEP hackery:
 

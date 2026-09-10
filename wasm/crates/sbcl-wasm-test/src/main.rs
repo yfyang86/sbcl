@@ -207,8 +207,11 @@ fn run_case(engine: &Engine, minirt: &Module, modules: &mut HashMap<String, Modu
         Some(Ref::Func(Some(f))) => f,
         _ => bail!("table slot {slot} holds no function"),
     };
-    let f = f.typed::<(), i32>(&store)?;
-    let flag = f.call(&mut store, ()).map_err(|e| {
+    // the Lisp function type (func-asm.lisp, +LISP-FUNCTION-PARAMS+): NARGS
+    // and A0..A3 are parameters as well as register slots
+    let arg = |i: usize| -> i32 { case.args.get(i).copied().unwrap_or(0) as i32 };
+    let f = f.typed::<(i32, i32, i32, i32, i32), i32>(&store)?;
+    let flag = f.call(&mut store, ((nargs << FIXNUM_TAG_BITS) as i32, arg(0), arg(1), arg(2), arg(3))).map_err(|e| {
         match store.data().error {
             Some((k, c, n)) => anyhow!("internal error: trap kind {k}, error code {c}, {n} values"),
             None => anyhow!("{e}"),

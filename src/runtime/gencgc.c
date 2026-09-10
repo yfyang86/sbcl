@@ -1367,7 +1367,10 @@ int lowtag_ok_for_page_type(__attribute__((unused)) lispobj ptr,
  * in conservative_root_p what the intent is.
  */
 #define AMBIGUOUS_POINTER 1
-#if !GENCGC_IS_PRECISE
+/* The WebAssembly port has precise stacks but ambiguous roots in its
+ * register area (PIN_CALL_CHAIN_AND_BOXED_REGISTERS), validated as the
+ * conservative backends validate a context's registers. */
+#if !GENCGC_IS_PRECISE || defined LISP_FEATURE_WASM
 // Return the starting address of the object containing 'addr'
 // if and only if the object is one which would be evacuated from 'from_space'
 // were it allowed to be either discarded as garbage or moved.
@@ -2007,7 +2010,7 @@ static void impart_mark_stickiness(lispobj word)
 }
 #endif
 
-#if !GENCGC_IS_PRECISE || defined LISP_FEATURE_MIPS || defined LISP_FEATURE_PPC64 || defined LISP_FEATURE_PPC
+#if !GENCGC_IS_PRECISE || defined LISP_FEATURE_MIPS || defined LISP_FEATURE_PPC64 || defined LISP_FEATURE_PPC || defined LISP_FEATURE_WASM
 /* Take a possible pointer to a Lisp object and mark its page in the
  * page_table so that it will not be relocated during a GC.
  *
@@ -3091,18 +3094,18 @@ static void pin_call_chain_and_boxed_registers(struct thread* th) {
 #ifdef LISP_FEATURE_WASM
     /* The Lisp registers are the words of the register area (there is no
      * interrupt context for the running code: the GC is entered from a
-     * safe point with every register flushed there). Their referents are
-     * pinned like those of a context's boxed registers. */
+     * safe point with every register flushed there). They are ambiguous
+     * roots, validated like a conservative backend's context registers
+     * (PRESERVE_POINTER): compiled code writes a register to the area
+     * only at its flush points (the register cache, Sprint 13), so a
+     * register the running code does not use can hold the address of an
+     * object an earlier collection moved, on a page reused since, and
+     * pinning that word as an exact root plants a "pinned object" beyond
+     * the page's used bytes, which the filler pass rejects. The same
+     * holds for the contexts below: each is a copy of the area. */
     extern uint32_t lisp_register_area[];
-    for (unsigned i = 0; i < (sizeof(boxed_registers) / sizeof(int)); i++) {
-        lispobj word = lisp_register_area[boxed_registers[i]];
-        if (is_lisp_pointer(word)) {
-#ifdef LISP_FEATURE_SOFT_CARD_MARKS
-            impart_mark_stickiness(word);
-#endif
-            pin_exact_root(word);
-        }
-    }
+    for (unsigned i = 0; i < (sizeof(boxed_registers) / sizeof(int)); i++)
+        sticky_preserve_pointer(lisp_register_area[boxed_registers[i]], (void*)1);
 #endif
 #ifdef reg_RA
     lispobj *object_ptr;
@@ -3150,6 +3153,10 @@ static void pin_call_chain_and_boxed_registers(struct thread* th) {
 
         for (unsigned i = 0; i < (sizeof(boxed_registers) / sizeof(int)); i++) {
             lispobj word = *os_context_register_addr(context, boxed_registers[i]);
+#ifdef LISP_FEATURE_WASM
+            sticky_preserve_pointer(word, (void*)1);
+            continue;
+#endif
             if (is_lisp_pointer(word)) {
 #ifdef LISP_FEATURE_SOFT_CARD_MARKS
                 impart_mark_stickiness(word);

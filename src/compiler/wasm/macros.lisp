@@ -54,11 +54,15 @@
 ;;;;
 ;;;; Registers are word slots in the register area of the thread
 ;;;; structure (see vm.lisp). $thread is Wasm global 0 in every module the
-;;;; backend emits. LOAD-REG pushes a register's value on the Wasm
-;;;; operand stack; STORE-REG pops the operand stack into a register.
-;;;; These two macros are the only place that knows where registers
-;;;; live, so that caching registers in Wasm locals later is a local
-;;;; change (doc/wasm-port/02-design.md, 2.4).
+;;;; backend emits. Within a function, a register lives in a Wasm local
+;;;; (REG.GET and REG.SET, insts.lisp); the function assembler reads the
+;;;; locals from the area at every entry and writes them back before a
+;;;; call, a return, a throw or a runtime entry (doc/wasm-port/02-design.md,
+;;;; 2.4, the register caching), so the area is the truth at those points
+;;;; and the runtime, the collector and the callee see every register.
+;;;; LOAD-REG pushes a register's value on the Wasm operand stack;
+;;;; STORE-REG pops the operand stack into a register. The float
+;;;; registers stay in the area.
 
 (defconstant +thread-global+ 0)
 
@@ -74,16 +78,14 @@
 
 (defmacro load-reg (tn)
   "Push the word in register TN."
-  `(progn
-     (inst global.get +thread-global+)
-     (inst i32.load (register-byte-offset (tn-offset ,tn)))))
+  `(inst reg.get (tn-offset ,tn)))
 
 (defmacro store-reg (tn &body value-forms)
-  "Evaluate VALUE-FORMS, which push one i32, and store it into register TN."
+  "Evaluate VALUE-FORMS, which push one i32 (or push it before, with no
+forms), and store it into register TN."
   `(progn
-     (inst global.get +thread-global+)
      ,@value-forms
-     (inst i32.store (register-byte-offset (tn-offset ,tn)))))
+     (inst reg.set (tn-offset ,tn))))
 
 ;;; Instruction-like macros.
 (defmacro move (dst src)
@@ -378,25 +380,61 @@ VALUE-FORMS at address+DISPLACEMENT."
     (:lt (inst i32.lt_s)) (:le (inst i32.le_s)) (:gt (inst i32.gt_s)) (:ge (inst i32.ge_s))
     (:ltu (inst i32.lt_u)) (:leu (inst i32.le_u)) (:gtu (inst i32.gt_u)) (:geu (inst i32.ge_u))))
 
-;;;; Allocation through the runtime
+;;;; Allocation
 ;;;;
-;;;; ALLOC returns the untagged address of NBYTES fresh zeroed bytes; the
-;;;; result register gets the address with LOWTAG. GC may run inside the
-;;;; slow path; all live Lisp values are in the register file or on the
-;;;; control stack, so nothing needs saving (doc/wasm-port/02-design.md, 2.8).
+;;;; The fast path bumps the free pointer of the allocation region in
+;;;; place (the main thread's mixed region, at a fixed address in static
+;;;; space: gencgc-alloc-region.h, STATIC_SPACE_START + MIXED_REGION_OFFSET;
+;;;; lists use it as well, there being no cons region on this target),
+;;;; the way the native backends do; the region's pages are zeroed when it
+;;;; is opened. When the request does not fit, the runtime's ALLOC opens a
+;;;; new region (and sets the collection pending when the heap's trigger
+;;;; is reached: it runs at the next safe point, so the runtime entry is
+;;;; not a flush point of the register cache beyond the stack registers,
+;;;; insts.lisp). The result register gets the address with LOWTAG.
 (defmacro emit-allocate (result nbytes lowtag &key list)
   "Allocate NBYTES into RESULT with LOWTAG. NBYTES is a form that either
 returns the byte count as an integer, or pushes it on the operand stack
 and returns :PUSHED."
-  (let ((n (gensym "NBYTES")))
-    `(store-reg ,result
-       (let ((,n ,nbytes))
-         (if (integerp ,n)
-             (inst i32.const ,n)
-             (aver (eq ,n :pushed))))
-       (inst call ,(if list '+import-alloc-list+ '+import-alloc+))
-       (inst i32.const ,lowtag)
-       (inst i32.or))))
+  (let ((n (gensym "NBYTES"))
+        (slow (gensym "SLOW"))
+        (done (gensym "DONE")))
+    `(let ((,slow (gen-label))
+           (,done (gen-label))
+           (,n ,nbytes))
+       ;; the byte count, into the scratch local
+       (if (integerp ,n)
+           (inst i32.const ,n)
+           (aver (eq ,n :pushed)))
+       (inst local.set +scratch-i32-local+)
+       ;; the region's free pointer
+       (store-reg ,result
+         (inst i32.const (+ static-space-start mixed-region-offset))
+         (inst i32.load 0))
+       ;; past the region's end: the runtime
+       (load-reg ,result)
+       (inst local.get +scratch-i32-local+)
+       (inst i32.add)
+       (inst i32.const (+ static-space-start mixed-region-offset))
+       (inst i32.load n-word-bytes)
+       (inst i32.gt_u)
+       (inst jump-if ,slow)
+       ;; the bump
+       (inst i32.const (+ static-space-start mixed-region-offset))
+       (load-reg ,result)
+       (inst local.get +scratch-i32-local+)
+       (inst i32.add)
+       (inst i32.store 0)
+       (inst jump ,done)
+       (emit-label ,slow)
+       (store-reg ,result
+         (inst local.get +scratch-i32-local+)
+         (inst call ,(if list '+import-alloc-list+ '+import-alloc+)))
+       (emit-label ,done)
+       (store-reg ,result
+         (load-reg ,result)
+         (inst i32.const ,lowtag)
+         (inst i32.or)))))
 
 ;;; Allocate a boxed object of WORDS words (including the header) with
 ;;; TYPE-CODE, storing the header word.

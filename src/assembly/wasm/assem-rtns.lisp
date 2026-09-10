@@ -43,6 +43,7 @@
   (inst jump LOOP)
   EXIT
   (move target catch) ;; TARGET coincides with UNWIND's BLOCK argument
+  (emit-lisp-call-args)
   (inst return_call (make-fixup 'unwind :assembly-routine)))
 
 (define-assembly-routine (unwind
