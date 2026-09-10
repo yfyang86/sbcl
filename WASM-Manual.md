@@ -412,6 +412,15 @@ Sprints/SprintN/                               per-sprint records and UATs
 
 ## 8. Troubleshooting
 
+- **`perfect hash file is missing a needed entry` in pass-2** (the CI
+  job, or a machine without `tools-for-build/perfecthash`): a new
+  `case` over symbols in the sources needs a hash function the
+  cross-compiler plays back from `xperfecthash30.lisp-expr`. A build
+  with the generator program records it (pass-2 prints `Recording
+  perfect hash:`) into `obj/xbuild/wasm/from-xc/xperfecthash30.lisp-expr`;
+  merge that into the tree's file and commit it:
+  `sbcl --non-interactive --load src/cold/shared --eval '(sb-cold::update-perfect-hashfuns (list "obj/xbuild/wasm/from-xc/xperfecthash30.lisp-expr") "xperfecthash30.lisp-expr")'`.
+
 - *`wasi-sdk not found`*: set `WASISDK_PATH` (or `WASI_SDK`) or run the
   toolchain step.
 - *pass-1 stops loading `src/cold/defun-load-or-cload-xcompiler.lisp`
