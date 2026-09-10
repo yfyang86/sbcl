@@ -1,0 +1,63 @@
+SBCL WebAssembly port: regression suite baseline (master sync after Sprint 14)
+date: 2026-09-10T16:19Z  commit: 6089970f3  runtime: src/runtime/sbcl.wasm  core: output/sbcl.core
+runner: tests/wasm-parallel-exec.sh (one sbcl-wasm per file through run-tests.sh)
+
+== summary
+files:       62, failed: 7
+unexpected failures:       45 (in /Users/yifanyang/sbcl-test-logs-20567/failures.txt)
+
+== files whose run did not succeed (status, time, file)
+1 4s alien-struct-access.impure.lisp
+1 4s aliencall.pure.lisp
+1 89s arith-2.pure.lisp
+1 6s backtrace.impure.lisp
+1 7s bit-vector.impure.lisp
+1 3s ccase.pure.lisp
+1 5s chill.impure.lisp
+
+== unexpected failures (file / test)
+alien-struct-access.impure.lisp: Unhandled SB-INT:SIMPLE-FILE-ERROR:
+aliencall.pure.lisp: Unhandled SB-INT:SIMPLE-FILE-ERROR:
+arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / LOGAND-CUT-CONSTANTS.2
+arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / SIGNED-BYTE-8-P-UNSIGNED
+arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / TRUNCATE-UNKNOWN-INTEGER
+arith-2.pure.lisp:  Failure:            arith-2.pure.lisp / WORD-FLOOR-CEILING
+array.pure.lisp:  Unexpected success: array.pure.lisp / CHECK-BOUND-SIGNED-BOUND-NOTES
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-308926)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-310173)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-354)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 *)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 +)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 -)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 /)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 <)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 =)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 >)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 GCD)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 LCM)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGAND)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGIOR)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE BUG-800343 LOGXOR)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE CLOS-EMF-NAMED)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE CLOS-SLOT-TYPECHECKFUN-NAMED)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE COMPILE NIL)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE DEFAULT-ONLY)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE GF-DISPATCH)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE HAIRY-ARGS-PROCESSOR)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE LOCAL-TAIL-CALL)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE MORE-PROCESSOR)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE OPTIONAL-PROCESSOR)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE THROW NO-SUCH-TAG)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE TL-XEP)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE UNDEFINED-FUNCTION BUG-346)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE UNDEFINED-FUNCTION BUG-353)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE UNUSED-KEY-WITH-SUPPLIED-P)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE UNUSED-OPTIONAL-WITH-SUPPLIED-P BUG-1498644)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE VARARGS-ENTRY)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE XEP)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / (BACKTRACE XEP-TOO-MANY-ARGUMENTS)
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / LONG-STRING-ABBREVIATION
+backtrace.impure.lisp:  Failure:            backtrace.impure.lisp / UNINITIALIZED-OPTIONALS
+bit-vector.impure.lisp: Unhandled EXTENSION-FAILURE: Don't know how to REQUIRE SB-POSIX.
+ccase.pure.lisp:  Failure:            ccase.pure.lisp / CCASE-SUBFORMS-ONCE-ONLY
+chill.impure.lisp:  Failure:            chill.impure.lisp / (CHILL READ-XC-FILES)
