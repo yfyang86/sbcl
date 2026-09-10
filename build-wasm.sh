@@ -203,18 +203,28 @@ xc_features="(:UNIX :LINUX :ELF :OS-PROVIDES-CLOCK-GETTIME :LITTLE-ENDIAN (NOT :
 # repository may not have; then the version is the base release plus the
 # commit.
 ensure_version_file() {
-    [ -f version.lisp-expr ] && return 0
-    ./generate-version.sh >/dev/null 2>&1 || true
     if [ ! -f version.lisp-expr ]; then
-        hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
-        printf '"2.6.8.wasm-dev.%s"\n' "$hash" > version.lisp-expr
+        ./generate-version.sh >/dev/null 2>&1 || true
+        if [ ! -f version.lisp-expr ]; then
+            hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+            printf '"2.6.8.wasm-dev.%s"\n' "$hash" > version.lisp-expr
+        fi
+        echo "version.lisp-expr: $(tail -1 version.lisp-expr)"
     fi
-    echo "version.lisp-expr: $(tail -1 version.lisp-expr)"
-    # output/build-id.inc: genesis reads it into the core's build id
-    # (make-config.sh writes it; the port's build does not run that)
+    # output/build-id.inc (genesis reads it into the core's build id) and
+    # output/build-config (make-target-contrib.sh sources it): products of
+    # make-config.sh, which the port's build does not run
     mkdir -p output
     if [ ! -f output/build-id.inc ]; then
         printf '"%s-%s-%s"\n' "$(hostname)" "$(id -un)" "$(date +%Y-%m-%d-%H-%M-%S)" > output/build-id.inc
+    fi
+    if [ ! -f output/build-config ]; then
+        cat > output/build-config <<EOT
+GNUMAKE="make"; export GNUMAKE
+SBCL_XC_HOST="sbcl --noinform --disable-debugger --no-userinit --no-sysinit"; export SBCL_XC_HOST
+android=false; export android
+SBCL_CONTRIB_BLOCKLIST=""; export SBCL_CONTRIB_BLOCKLIST
+EOT
     fi
 }
 
