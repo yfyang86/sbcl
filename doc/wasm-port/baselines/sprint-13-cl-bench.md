@@ -36,6 +36,12 @@ a build running on the other cores, the s13f run on an idle machine
 | s13b: the masks | 1.35 | 1.13 | 1.02 | 0.97 | 1.35 | 1.42 | 0.93 | 4.07 | 2.67 | 0.61 |
 | s13c: inline allocation | 1.49 | 1.09 | 1.22 | 0.98 | 1.43 | 1.61 | 1.56 | 3.84 | 3.43 | 0.58 |
 | s13f: the parameters | 1.47 | 1.02 | 1.02 | 0.91 | 1.42 | 1.95 | 1.56 | 3.74 | 3.43 | 0.60 |
+| s13h: the final core (the root and save fixes) | 1.43 | | | | | | | | | |
+
+The s13h row (`s12opt-vs-s13h.txt`, `host-vs-s13h.txt`: 0.17 against
+the host as well) is the code of s13f with the runtime validating the
+register area's words as ambiguous roots; the difference is within the
+run-to-run spread of the kernels that take a few milliseconds.
 
 ## 2. Sprint 12 (a) against the sprint's code (b), scale 10
 

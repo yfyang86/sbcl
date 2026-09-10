@@ -75,8 +75,9 @@ second.
 (`develop.md`, sections 4 and 6; the tables in
 `doc/wasm-port/baselines/sprint-13-cl-bench.md`): the register cache
 and the inline allocation 1.47 on the geometric mean of 62 benchmarks
-against Sprint 12's optimized core, the parameters nothing measurable
-on top (0.98 against the build before them). Against the host SBCL
+against Sprint 12's optimized core (1.43 on the final core, with the
+collector's root validation), the parameters nothing measurable on
+top (0.98 against the build before them). Against the host SBCL
 the port is 5.9× slower on the whole suite.
 
 The compute-bound subset at scale 1 (the original run counts) is the
