@@ -262,12 +262,16 @@ function so that a loader can renumber it."
 ;;; does (EMIT-SAFE-POINT, call.lisp), so that a loop without calls
 ;;; still sees the host's interrupt, the timer and a pending collection.
 ;;; The word is zero unless something is pending: a load and a branch.
+;;; (macros.lisp, compiled after this file: +THREAD-INTERRUPT-PENDING-OFFSET+
+;;; and +IMPORT-PENDING-INTERRUPT+ are these)
+(defconstant +poll-word-offset+ 456)
+(defconstant +poll-import+ 3)
 (defun emit-back-edge-poll (buffer)
   (buffer-byte buffer #x23) (buffer-uleb128 buffer +global-thread+)  ; global.get thread
   (buffer-byte buffer #x28) (buffer-byte buffer 2)                    ; i32.load align=2
-  (buffer-uleb128 buffer sb-vm::+thread-interrupt-pending-offset+)
+  (buffer-uleb128 buffer +poll-word-offset+)
   (buffer-byte buffer #x04) (buffer-byte buffer +empty-block-type+)   ; if
-  (buffer-byte buffer #x10) (buffer-uleb128 buffer sb-vm::+import-pending-interrupt+) ; call
+  (buffer-byte buffer #x10) (buffer-uleb128 buffer +poll-import+)     ; call pending_interrupt
   (buffer-byte buffer #x0B))                                          ; end
 
 (defun emit-note-lowering (buffer note ctx)

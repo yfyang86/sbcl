@@ -177,10 +177,14 @@ is unchanged. The blobs stay for the next save.
   `build-wasm.sh toolchain`), the host, the cross build, the runtime,
   the warm load, the contribs, the level-0/1 tests and both suites, on
   push; logs uploaded.
-- `:os-provides-poll` for the target: wasi-libc has `poll`
-  (`poll_oneoff`), so `SYSREAD-MAY-BLOCK-P` no longer goes through
-  `select`, which failed on files (`LISTEN.7`, `external-format`'s
-  `:end-of-file`).
+- `poll` on files: wasi-libc's `select` (the `#-os-provides-poll`
+  path, behind `poll_oneoff`) fails on a regular file ("select(2)
+  failed on fd 6": `LISTEN.7`, `external-format`'s `:end-of-file`).
+  `:os-provides-poll` was tried first: wasi-libc's `poll` works on
+  files but fails with `EBADF` on the standard descriptors under
+  Wasmtime, which stopped the warm load's reading of its script; so
+  `UNIX-SIMPLE-POLL` answers "ready" for a regular file (an `fstat`)
+  and asks `select` for everything else, as before.
 - `file-author` answers `NIL` where WASI has no user database
   (`FILE-AUTHOR.1-7` expect `(or null string)`).
 - The test-side stubs `check_deferrables_*_or_lose` and the variable

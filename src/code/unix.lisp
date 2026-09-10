@@ -741,6 +741,14 @@ avoiding `atexit(3)` hooks, etc. Otherwise `exit(2)` is called."
 
 #-os-provides-poll
 (defun unix-simple-poll (fd direction to-msec)
+  ;; The WebAssembly port: WASI's poll_oneoff, behind wasi-libc's select
+  ;; and poll, fails on a regular file (and poll on the standard
+  ;; descriptors under Wasmtime); a regular file is always ready.
+  #+wasm
+  (multiple-value-bind (okay dev ino mode) (unix-fstat fd)
+    (declare (ignore dev ino))
+    (when (and okay (eql (logand mode s-ifmt) s-ifreg))
+      (return-from unix-simple-poll t)))
   (flet ((msec-to-sec-usec (msec)
            (multiple-value-bind (sec msec2) (truncate msec 1000)
              (values sec (* msec2 1000)))))
