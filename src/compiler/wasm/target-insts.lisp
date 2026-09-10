@@ -24,6 +24,9 @@
   (table-count 0)
   (n-imported-functions 0)
   bodies                                ; vector of (start . end) offsets, code section order
+  ;; the function index at each table slot from the base (the module's
+  ;; element segment), or NIL when the slots hold the functions in order
+  (table-functions nil)
   names)                                ; hash table: function index -> name, if any
 
 (defun read-uleb128 (bytes pos)
@@ -92,6 +95,31 @@
                               (3 (incf q 2)) ; valtype, mutability
                               (4 (incf q)   ; tag attribute
                                  (setf q (nth-value 1 (read-uleb128 bytes q)))))))))
+                     (9                 ; element: one active segment of
+                                        ; function indices, the way
+                                        ; module.lisp writes it (flags 2:
+                                        ; explicit table, funcref kind; or
+                                        ; flags 0). wasm-opt may renumber
+                                        ; the functions, so the table is
+                                        ; read rather than assumed
+                      (multiple-value-bind (n q) (read-uleb128 bytes p)
+                        (when (and (= n 1) (member (aref bytes q) '(0 2)))
+                          (let ((flags (aref bytes q))
+                                (q (1+ q)))
+                            (when (= flags 2)
+                              (setf q (nth-value 1 (read-uleb128 bytes q)))) ; table index
+                            ;; the offset expression: global.get or
+                            ;; i32.const up to its END
+                            (loop until (= (aref bytes q) #x0B)
+                                  do (incf q))
+                            (incf q)
+                            (when (= flags 2) (incf q)) ; elemkind
+                            (multiple-value-bind (count q2) (read-uleb128 bytes q)
+                              (let ((functions (make-array count)))
+                                (dotimes (i count)
+                                  (multiple-value-bind (index q3) (read-uleb128 bytes q2)
+                                    (setf (aref functions i) index q2 q3)))
+                                (setf (wmi-table-functions info) functions)))))))
                      (10                ; code
                       (multiple-value-bind (n q) (read-uleb128 bytes p)
                         (let ((bodies (make-array n)))
@@ -319,13 +347,17 @@
   "Print the body of the function at table INDEX of INFO."
   (let* ((bytes (wmi-bytes info))
          (local (- index (wmi-table-base info)))
-         (body (aref (wmi-bodies info) local))
+         (function (let ((table (wmi-table-functions info)))
+                     (if (and table (< local (length table)))
+                         (aref table local)
+                         (+ local (wmi-n-imported-functions info)))))
+         (body (aref (wmi-bodies info) (- function (wmi-n-imported-functions info))))
          (start (car body))
          (end (cdr body))
-         (name (gethash (+ local (wmi-n-imported-functions info)) (wmi-names info)))
+         (name (gethash function (wmi-names info)))
          (depth 0))
     (format stream "~&; table index ~D, function ~D of ~A~@[ (~A)~], body at #x~X..#x~X (~D bytes)~%"
-            index (+ local (wmi-n-imported-functions info))
+            index function
             (if (eq info *core-module-info*) "the core module" (format nil "the run-time module at ~D" (wmi-table-base info)))
             name start end (- end start))
     ;; locals

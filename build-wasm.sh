@@ -5,7 +5,8 @@
 #   ./build-wasm.sh [options] [step ...]
 #
 # Steps (default: all):
-#   toolchain  check wasi-sdk, wasmtime, wasm-tools, a host SBCL and cargo;
+#   toolchain  check wasi-sdk, wasmtime, wasm-tools, a host SBCL and cargo
+#              (and binaryen's wasm-opt, optional, for the opt step);
 #              download the pinned tool-chain releases that are missing
 #              (never overwrites an existing installation)
 #   host       build the Wasmtime host, wasm/target/release/sbcl-wasm
@@ -15,6 +16,11 @@
 #   lisp       crossbuild pass-1 (host compiler) and pass-2 (cross-compile
 #              the tree, genesis): obj/xbuild/wasm.core, wasm-core.wasm,
 #              wasm.map, genesis headers. About 20 minutes.
+#   opt        optimize the cold core module with binaryen's wasm-opt
+#              (obj/xbuild/wasm-core.wasm, -O2 keeping the function names;
+#              the original is kept as wasm-core.wasm.orig; needs lisp,
+#              runs before warm so that the saved cores carry the
+#              optimized module). About a minute.
 #   runtime    build src/runtime/sbcl.wasm with wasi-sdk (needs lisp)
 #   warm       the warm load: the cold core compiles src/cold/warm.lisp,
 #              a fresh cold core loads it and saves output/sbcl.core
@@ -53,7 +59,7 @@ while [ $# -gt 0 ]; do
         --jobs) shift; jobs=$1 ;;
         --jobs=*) jobs=${1#--jobs=} ;;
         --) shift; break ;;
-        -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "build-wasm.sh: unknown option $1" >&2; exit 2 ;;
         *) steps="$steps $1" ;;
     esac
@@ -79,6 +85,7 @@ system/arch        $WASM_HOST_SYSTEM-$WASM_HOST_ARCH
 WASISDK_PATH       $WASISDK_PATH (wasi-sdk $WASISDK_VERSION)
 WASMTIME_BIN_PATH  $WASMTIME_BIN_PATH (wasmtime $WASMTIME_VERSION)
 WASMTOOLS_BIN_PATH $WASMTOOLS_BIN_PATH (wasm-tools $WASMTOOLS_VERSION)
+BINARYEN_BIN_PATH  $BINARYEN_BIN_PATH (binaryen $BINARYEN_VERSION, optional)
 host sbcl          $(command -v sbcl 2>/dev/null || echo "not found") $(sbcl --version 2>/dev/null | cut -d' ' -f2)
 cargo              $(command -v cargo 2>/dev/null || echo "not found")
 node (optional)    $(command -v node 2>/dev/null || echo "not found")
@@ -126,6 +133,21 @@ step_toolchain() {
         echo "wasm-tools: installed in $WASMTOOLS_BIN_PATH"
     else
         echo "wasm-tools: MISSING in $WASMTOOLS_BIN_PATH"; ok=0
+    fi
+    # binaryen (wasm-opt), optional: the opt step
+    if [ -x "$BINARYEN_BIN_PATH/wasm-opt" ] || have wasm-opt; then
+        echo "wasm-opt: $(command -v wasm-opt) ($(wasm-opt --version 2>/dev/null))"
+    elif [ "$download" = 1 ] && [ -n "$BINARYEN_ASSET" ]; then
+        parent=$(dirname "$(dirname "$BINARYEN_BIN_PATH")"); mkdir -p "$parent"
+        fetch "$BINARYEN_URL" "$parent/$BINARYEN_ASSET"
+        (cd "$parent" && tar xf "$BINARYEN_ASSET") || die "cannot unpack binaryen"
+        unpacked=$parent/binaryen-version_$BINARYEN_VERSION
+        [ -d "$unpacked" ] || die "binaryen unpacked somewhere unexpected (wanted $unpacked)"
+        [ -e "$(dirname "$BINARYEN_BIN_PATH")" ] || ln -s "$unpacked" "$(dirname "$BINARYEN_BIN_PATH")"
+        rm -f "$parent/$BINARYEN_ASSET"
+        echo "wasm-opt: installed in $BINARYEN_BIN_PATH"
+    else
+        echo "wasm-opt: missing in $BINARYEN_BIN_PATH (optional: the opt step)"
     fi
     # host SBCL (the cross-compiler runs in it)
     if have sbcl; then
@@ -213,13 +235,37 @@ step_lisp() {
         say "pass-2: obj/xbuild/wasm.core present, skipped (--fast)"
     else
         say "pass-2: cross-compile the tree and genesis (about 15 minutes)"
-        rm -rf obj/xbuild/wasm/from-xc obj/xbuild/wasm.core obj/xbuild/wasm-core.wasm
+        rm -rf obj/xbuild/wasm/from-xc obj/xbuild/wasm.core obj/xbuild/wasm-core.wasm obj/xbuild/wasm-core.wasm.orig
         sbcl --noinform --disable-debugger --noprint --no-userinit --no-sysinit \
              wasm < crossbuild-runner/pass-2.lisp > "$log_dir/pass-2.log" 2>&1 \
             || { tail -30 "$log_dir/pass-2.log"; die "pass-2 failed (see $log_dir/pass-2.log)"; }
     fi
     ls -la obj/xbuild/wasm.core obj/xbuild/wasm-core.wasm obj/xbuild/wasm.map | awk '{print $5, $9}'
     wasm-tools validate --features all obj/xbuild/wasm-core.wasm && echo "core module validates"
+}
+
+# the Wasm features the backend and the runtime use, for wasm-opt
+WASM_OPT_FEATURES="--enable-exception-handling --enable-tail-call --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-multivalue --enable-reference-types"
+step_opt() {
+    say "wasm-opt on the core module (obj/xbuild/wasm-core.wasm)"
+    have wasm-opt || die "no wasm-opt on PATH: binaryen is missing (./build-wasm.sh toolchain downloads it; see tools-for-build/wasm-env.sh)"
+    [ -f obj/xbuild/wasm-core.wasm ] || die "no obj/xbuild/wasm-core.wasm: run the lisp step first"
+    if [ -f obj/xbuild/wasm-core.wasm.orig ]; then
+        echo "obj/xbuild/wasm-core.wasm.orig present: the module is optimized already, skipped"
+        return
+    fi
+    cp obj/xbuild/wasm-core.wasm obj/xbuild/wasm-core.wasm.orig
+    start=$(date +%s)
+    # -g keeps the name section, which DISASSEMBLE reads; wasm-opt merges
+    # identical functions and renumbers, so the disassembler maps table
+    # slots through the element segment (target-insts.lisp)
+    if ! wasm-opt $WASM_OPT_FEATURES -O2 -g obj/xbuild/wasm-core.wasm.orig -o obj/xbuild/wasm-core.wasm > "$log_dir/wasm-opt.log" 2>&1; then
+        tail -20 "$log_dir/wasm-opt.log"
+        mv obj/xbuild/wasm-core.wasm.orig obj/xbuild/wasm-core.wasm
+        die "wasm-opt failed (see $log_dir/wasm-opt.log); the module is unchanged"
+    fi
+    echo "wasm-opt -O2 -g: $(( $(date +%s) - start )) s, $(wc -c < obj/xbuild/wasm-core.wasm.orig) -> $(wc -c < obj/xbuild/wasm-core.wasm) bytes"
+    wasm-tools validate --features all obj/xbuild/wasm-core.wasm && echo "optimized core module validates"
 }
 
 step_runtime() {
@@ -294,7 +340,7 @@ step_run() {
 
 step_clean() {
     say "clean"
-    rm -rf obj/xbuild/wasm obj/xbuild/wasm.core obj/xbuild/wasm-core.wasm obj/xbuild/wasm-core.wasm.symbols obj/xbuild/wasm.map "$log_dir"
+    rm -rf obj/xbuild/wasm obj/xbuild/wasm.core obj/xbuild/wasm-core.wasm obj/xbuild/wasm-core.wasm.orig obj/xbuild/wasm-core.wasm.symbols obj/xbuild/wasm.map "$log_dir"
     (cd src/runtime && rm -f *.o sbcl.wasm wasm-linkage-table.c)
 }
 
@@ -308,6 +354,7 @@ for step in $steps; do
         host) step_host ;;
         grovel) step_grovel ;;
         lisp) step_lisp ;;
+        opt) step_opt ;;
         runtime) step_runtime ;;
         warm) step_warm ;;
         smoke) step_smoke ;;

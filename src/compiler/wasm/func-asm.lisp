@@ -66,6 +66,15 @@
 (defconstant sb-vm::+scratch-f64-local+ 2)
 (defconstant sb-vm::+n-scratch-locals+ 3)
 
+;;; The stackifier (stackify.lisp, compiled after this file) is the
+;;; lowering of choice; the dispatch loop below is its fallback.
+(defvar sb-vm::*wasm-stackify* t
+  "Whether functions are lowered with structured control flow (the
+stackifier) or the dispatch loop.")
+(defvar sb-vm::*wasm-stackify-fallback-hook* nil
+  "Called with the function when its control flow is irreducible and
+the dispatch loop is used instead.")
+
 ;;; The uniform signature of a Lisp entry point.
 (defconstant-eqx +lisp-function-params+ '() #'equal)
 (defconstant-eqx +lisp-function-results+ '(:i32) #'equal)
@@ -80,7 +89,7 @@
   (ecase (control-note-kind note)
     ((:jump :jump-if :nlx-entry :label-index) (list (control-note-labels note)))
     (:jump-table (append (control-note-labels note) (list (control-note-data note))))
-    ((:func-begin :func-end :call-label :tail-call-label) '())))
+    ((:func-begin :func-end :call-label :tail-call-label :terminator) '())))
 
 ;;; An arm is a byte range of the segment; arms are numbered in the
 ;;; order they are emitted, which is range order then position order.
@@ -195,6 +204,9 @@ Each element is a tag; :loop marks the dispatch loop.")
   ;; the labels of the compiler's blocks: a branch to one is a branch
   ;; between blocks, and backward it is a loop's safe point
   (block-labels '())
+  ;; function -> the arms other than its start entered from other
+  ;; functions of the component (COMPONENT-ENTRY-ARMS, stackify.lisp)
+  (entry-arms '())
   ;; the function being lowered
   function)
 
@@ -344,7 +356,7 @@ function so that a loader can renumber it."
         (:label-index
          (buffer-byte buffer #x41)                                        ; i32.const
          (buffer-sleb128 buffer (target-arm (control-note-labels note))))
-        ((:func-begin :func-end :nlx-entry)
+        ((:func-begin :func-end :nlx-entry :terminator)
          nil)))))
 
 ;;; The exception handler of a function with non-local entries: the
@@ -518,6 +530,20 @@ with END) and the local declarations ((count . type) ...)."
          (all-locals (list* '(1 . :i32) '(1 . :f32) '(1 . :f64)
                             (cons (if nlx-p 3 2) :i32) locals))
          (buffer (make-octet-buffer)))
+    ;; the structured encoding first (stackify.lisp); the dispatch loop
+    ;; below is the fallback for irreducible control flow
+    (when sb-vm::*wasm-stackify*
+      (multiple-value-bind (body locals)
+          (stackify-function-body ctx (cdr (assoc function (fctx-entry-arms ctx)))
+                                  :params params :locals locals)
+        (cond (body
+               (return-from lower-function-body (values body locals)))
+              (t
+               (let ((hook sb-vm::*wasm-stackify-fallback-hook*))
+                 (if hook
+                     (funcall hook function)
+                     (format *error-output* "~&; stackify: ~A: irreducible control flow, dispatch loop~%"
+                             (wasm-function-name function))))))))
     (setf (fctx-arms ctx) arms
           (fctx-pc-local ctx) pc-local
           ;; a body may be lowered again (see LOWER-FUNCTIONS)
@@ -722,6 +748,8 @@ blocks (EMIT-NOTE-LOWERING)."
                            (some (lambda (r) (range-contains-p r (control-note-posn note))) ranges))
                          notes)))
         (assign-arms function ranges all-notes notes)))
+    ;; the arms other than a start that another function enters
+    (setf (fctx-entry-arms ctx) (component-entry-arms ctx))
     ;; then the bodies: a body that enters another function at an arm
     ;; other than its start marks the callee (ENTRY-ARM-P), whose prologue
     ;; must then read the entry-arm global, so callees are lowered after
