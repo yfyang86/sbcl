@@ -33,11 +33,13 @@ The port is at the end of its Sprint 12 (branch `wasm-dev` of
   mean (`doc/wasm-port/baselines/sprint-12-cl-bench.md`); startup
   about 1 s under Wasmtime once the module is cached, 24 s the first
   time (the engine compiles the 34 MB module).
-- One host exists: `sbcl-wasm`, a Rust program embedding Wasmtime. No
-  JavaScript host exists yet: the plan's Sprint 14 (`doc/wasm-port/04-sprints.md`,
-  "browser host": a Web Worker, a WASI shim, the `sbcl_host` imports
-  in TypeScript under `wasm/web/`) has not started. The Node embedding
-  is that work; section 4 gives everything it needs.
+- Two hosts exist: `sbcl-wasm`, a Rust program embedding Wasmtime, and
+  (Sprint 14) the browser host under `wasm/web/`: a Web Worker, a WASI
+  shim and the `sbcl_host` imports in JavaScript, with a REPL page
+  (`node wasm/web/serve.mjs`, WASM-Manual.md 4.2). The same host code
+  runs in Node (`wasm/web/node-smoke.mjs`) for an in-process embedding
+  without the Wasmtime binary; section 4 remains the contract both
+  implement.
 
 ## 2. The files
 

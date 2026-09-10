@@ -1,0 +1,15 @@
+
+Running 8 tests using 1 worker
+
+startup: 0.2 s
+  ✓  1 [chromium] › repl.spec.mjs:38:1 › boot: the page runs SBCL to its REPL (641ms)
+  ✓  2 [chromium] › repl.spec.mjs:49:1 › REPL round trip: an arithmetic form evaluates (574ms)
+  ✓  3 [chromium] › repl.spec.mjs:60:1 › compile: a function compiled at run time runs (734ms)
+  ✓  4 [chromium] › repl.spec.mjs:74:1 › pure tests in the worker: the ansi-style subset (1.2s)
+startup: 1.3 s
+  ✓  5 [firefox] › repl.spec.mjs:38:1 › boot: the page runs SBCL to its REPL (2.7s)
+  ✓  6 [firefox] › repl.spec.mjs:49:1 › REPL round trip: an arithmetic form evaluates (2.3s)
+  ✓  7 [firefox] › repl.spec.mjs:60:1 › compile: a function compiled at run time runs (2.3s)
+  ✓  8 [firefox] › repl.spec.mjs:74:1 › pure tests in the worker: the ansi-style subset (4.7s)
+
+  8 passed (17.3s)

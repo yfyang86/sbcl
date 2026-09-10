@@ -21,7 +21,8 @@ in Rust (`wasm/crates/sbcl-wasm-host`). The pieces:
 | genesis for wasm (core module, table indices, foreign symbol list, map) | `src/compiler/generic/genesis.lisp` (`#+wasm` parts) | `obj/xbuild/wasm.core`, `obj/xbuild/wasm-core.wasm`, `wasm-core.wasm.symbols`, `wasm.map`, genesis headers |
 | runtime (C, wasi-sdk) | `src/runtime/wasm-*.c`, `wasi-mman.c`, `Config.wasm-wasi` | `src/runtime/sbcl.wasm` |
 | host (Rust, Wasmtime) | `wasm/crates/sbcl-wasm-host` | `wasm/target/release/sbcl-wasm` |
-| tests | `tests/wasm/` (level 0: assembler/module writer; level 1: differential suite against the host compiler) and each sprint's `uat.sh` | |
+| browser host (JavaScript, V8) | `wasm/web/` (Web Worker, WASI shim, `sbcl_host`, REPL page) | served by `wasm/web/serve.mjs` |
+| tests | `tests/wasm/` (level 0: assembler/module writer; level 1: differential suite against the host compiler; `tests/wasm/web/`: the browser host under Playwright) and each sprint's `uat.sh` | |
 
 Status after Sprint 6 (`Sprints/Sprint6/`): `sbcl.wasm --version` and
 `--help` work; the cold core loads, its core module instantiates and
@@ -209,6 +210,76 @@ run with a backtrace. Compiled modules are cached in Wasmtime's default
 cache directory (`~/.cache/wasmtime` on Linux, `~/Library/Caches/...` on
 macOS), so the core module compiles once (24 s) and loads in under a
 second afterwards.
+
+### 4.1 Loading ASDF systems
+
+ASDF ships as a contrib and loads with `(require :asdf)` (`SBCL_HOME`
+must point at `obj/sbcl-home` — `wasm_run.sh` does not set it, export
+it beside the command). Third-party systems load the usual way:
+
+```
+export SBCL_HOME=$PWD/obj/sbcl-home
+tools-for-build/wasm_run.sh src/runtime/sbcl.wasm --core output/sbcl.core \
+    --noinform --no-sysinit --no-userinit \
+    --eval '(require :asdf)' \
+    --eval '(push #P"/path/to/system/" asdf:*central-registry*)' \
+    --eval '(asdf:load-system :system-name)'
+```
+
+`compile-file` and `load` of the system's files work (each compiles to
+a per-component Wasm module, installed through the host as `compile`
+does); ASDF's output translations cache the fasls under
+`~/.cache/common-lisp/sbcl-2.4.8-wasm-linux-wasm32/` keyed by the
+source path.
+
+An example is `example/cl-plot-master/` (a Common Lisp interface to
+gnuplot that targets ECL): `load-on-sbcl.lisp` loads it on the port —
+`ext-compat.lisp` supplies the ECL-only `EXT:SHELL` and `EXT:CD` on
+SBCL first. Loading, CLOS and file writing all work under the port;
+spawning the plot's `bash`/`gnuplot` does not (WASI preview 1 has no
+process spawning): `EXT:SHELL` reports that, and the commands are in
+the command file the figure wrote (run them outside the sandbox).
+
+### 4.2 The browser host (Sprint 14)
+
+`wasm/web/` runs the same runtime and core under V8 instead of
+Wasmtime: a Web Worker (the runtime's Wasm and its synchronous module
+compilation belong off the main thread), a WASI preview 1 shim over an
+in-memory file system (`wasi.js`), the `sbcl_host` contract
+(`sbcl-host.js`, SBCL-Handoff.md section 4), and a REPL page
+(`index.html`, `repl.js`). A dev server ties it together:
+
+```
+node wasm/web/serve.mjs            # http://127.0.0.1:8625/
+```
+
+and serves the page, the worker and the build products
+(`src/runtime/sbcl.wasm`, `output/sbcl.core`, `output/sbcl-core.wasm`),
+with the COOP/COEP headers that make the page crossOriginIsolated —
+the worker's thread is inside Wasm while Lisp runs and cannot service
+`postMessage`, so the page writes standard input into a
+SharedArrayBuffer ring (`ring.js`) and notifies it. Without the
+headers (or outside a worker), input falls back to a non-blocking
+queue and the REPL sees it at the next poll.
+
+What works there: the whole language through the same core the
+Wasmtime host runs, `compile` and `compile-file`/`load` at run time
+(each module instantiated synchronously in the worker), timers
+(delivered at the WASI clock reads, as the handoff's 4.5 says — a
+tick waits for the next `clock_time_get`), Ctrl-C (bit 1 of the
+interrupt-pending word, same point). What does not: `run-program`
+(`sbcl_host.run_process` answers -1), the `save-lisp-and-die` file
+writes land in the in-memory file system and are lost, and no
+`js_call` from Lisp yet (`contrib/sb-js/` is the skeleton).
+
+A Node driver runs the same host code without a browser
+(`node --experimental-wasm-exnref wasm/web/node-smoke.mjs
+output/sbcl.core output/sbcl-core.wasm [stdin.lisp]`; Node 22 needs
+`--experimental-wasm-exnref`, Node 24 and current browsers have the
+exception proposal on). The Playwright suite is
+`tests/wasm/web/` (`repl.spec.mjs`: boot, REPL round trip, a
+`compile`, a subset of pure tests in the worker; Chromium and Firefox,
+`PLAYWRIGHT_FIREFOX=1`).
 
 ## 5. Tests
 

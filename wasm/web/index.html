@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- The SBCL WebAssembly port's REPL page (Sprint 14). The runtime runs
+     in a worker (worker.js); this page feeds it standard input and
+     prints what it writes. Everything it needs is served by
+     wasm/web/serve.mjs, which also sets the COOP/COEP headers that make
+     the worker's stdin a blocking SharedArrayBuffer. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SBCL — WebAssembly</title>
+<link rel="stylesheet" href="repl.css">
+</head>
+<body>
+<header>
+  <span id="status" class="status starting">starting…</span>
+  <span class="title">SBCL <span id="version"></span> on WebAssembly</span>
+</header>
+<main>
+  <pre id="output" aria-live="polite" aria-label="SBCL output"></pre>
+  <div class="inputline">
+    <span id="prompt"></span><textarea id="input" rows="1" spellcheck="false"
+      placeholder="type a Lisp form, Enter to send, Ctrl-Enter for a newline, Ctrl-C interrupts"></textarea>
+  </div>
+</main>
+<script type="module" src="repl.js"></script>
+</body>
+</html>
