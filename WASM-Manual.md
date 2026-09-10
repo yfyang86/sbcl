@@ -326,8 +326,10 @@ second afterwards.
   a code offset as text with binary offsets and marks the instruction.
 - **The entry trace** (`SBCL_WASM_TRACE_ENTRIES=1`): every XEP is a safe
   point that calls the runtime when the register area's interrupt-pending
-  word is set; the runtime prints each entry when the word is 2. Local
-  functions (no XEP) do not appear; tail calls replace frames.
+  word is set, and so is every backward branch between blocks (a loop's
+  back edge); the runtime prints each such point when the word is 2 (an
+  "enter" line per loop iteration as well). Local functions (no XEP)
+  appear only through their loops; tail calls replace frames.
 - **Internal errors** enter the Lisp condition system (`internal-error`
   with a context that snapshots the register file). Before
   `internal_errors_enabled` is set by cold-init, or if the handler
