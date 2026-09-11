@@ -1892,7 +1892,7 @@
     (setf (gethash symbol *inst-encoder*)
           (if accept-prefixes (cons function t) function))))
 
-(defmacro define-instruction (name lambda-list &rest options)
+(defmacro define-instruction (name lambda-list &body options)
   (binding* ((fun-name (intern (symbol-name name) *backend-instruction-set-package*))
              (segment-name (car lambda-list))
              (vop-name nil)
