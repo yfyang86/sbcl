@@ -159,8 +159,9 @@
                       type)
                 (do-uses (use value)
                   (let ((type (values-type-intersection (node-derived-type use) type)))
-                    (unless (eq type *empty-type*)
-                      (setf (node-derived-type use) type))))
+                    (if (eq type *empty-type*)
+                        (maybe-terminate-block use nil)
+                        (setf (node-derived-type use) type)))))
                 (delete-filter node lvar (cast-value node))))))
           (combination
            (when (eq (combination-kind node) :known)
