@@ -447,7 +447,14 @@
         ((or union-type numeric-union-type)
          (if (type= type (specifier-type 'list))
              (exactly list)
-             (let ((types (sb-kernel::flatten-numeric-union-types type)))
+             ;; an opaque type hiding an integer: strip it and try the
+             ;; transparent rest (upstream's lp#2167182 fix, merged onto
+             ;; the numeric-union extension of this branch)
+             (if (and (opaque-type-p type)
+                      (csubtypep type (specifier-type 'integer)))
+                 (values (primitive-type (sb-kernel::remove-opaque-type-intersections type))
+                         nil)
+                 (let ((types (sb-kernel::flatten-numeric-union-types type)))
                (multiple-value-bind (res exact) (primitive-type (first types))
                  (dolist (type (rest types) (values res exact))
                    (multiple-value-bind (ptype ptype-exact)
