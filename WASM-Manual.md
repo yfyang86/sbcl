@@ -5,7 +5,8 @@ This manual covers the WebAssembly port of SBCL that lives on the
 tool chain on Linux and macOS, how to build and run it, and how to debug
 it. The design and the sprint plan are in `doc/wasm-port/`; each sprint's
 records (development notes, UAT script and result, findings) are in
-`Sprints/SprintN/`.
+`Sprints/SprintN/`. The port's releases and change log are `WASM-NEWS.md`
+(releasing itself: section 9 below).
 
 ## 1. What it is
 
@@ -24,12 +25,17 @@ in Rust (`wasm/crates/sbcl-wasm-host`). The pieces:
 | browser host (JavaScript, V8) | `wasm/web/` (Web Worker, WASI shim, `sbcl_host`, REPL page) | served by `wasm/web/serve.mjs` |
 | tests | `tests/wasm/` (level 0: assembler/module writer; level 1: differential suite against the host compiler; `tests/wasm/web/`: the browser host under Playwright) and each sprint's `uat.sh` | |
 
-Status after Sprint 6 (`Sprints/Sprint6/`): `sbcl.wasm --version` and
-`--help` work; the cold core loads, its core module instantiates and
-`!COLD-INIT` runs through stream and signal-function initialization
-before stopping in the printer initialization. There is no REPL yet.
-The next sprints (plan `doc/wasm-port/04-sprints.md`) bring up the Lisp
-side of errors, the debugger and streams.
+Status at the first release (`2.4.8-wasm.1`, `WASM-NEWS.md`): the
+complete system — compiler, runtime, collector, PCL, the condition
+system, `compile-file`/`load`, `save-lisp-and-die`, the pure-Lisp
+contribs — runs under Wasmtime and in the browser. The ANSI suite has
+0 unexpected failures; the regression suite has a documented failure
+list (`doc/wasm-port/baselines/sprint-14-sync.txt`). The plan
+(`doc/wasm-port/04-sprints.md`) and each sprint's records
+(`Sprints/SprintN/`) carry the history; the open work (threads,
+sockets, stack allocation, the debugger's frame walking, the
+performance backlog) is `Sprints/Sprint13/verify.md` section 3 and
+`SBCL-Handoff.md` section 5.
 
 ## 2. Requirements
 
@@ -520,3 +526,38 @@ Sprints/SprintN/                               per-sprint records and UATs
   (the failing form is near the end); the after-xc build
   (`tests/wasm/make-after-xc.lisp`) tolerates unimplemented VOPs and
   writes `obj/xbuild/wasm/unimplemented-vops.txt`.
+
+## 9. Releasing
+
+A release of the port is a tag on `wasm-dev` (`sbcl-2.4.8-wasm.1` is
+the first), a `WASM-NEWS.md` entry, and the build products of a clean
+build of the tagged tree. The checks, in order:
+
+1. **A clean build from the tag**: `git fetch --tags && git checkout
+   sbcl-X.Y.Z-wasm.N && ./build-wasm.sh clean && ./build-wasm.sh
+   toolchain host lisp opt runtime grovel warm contrib` — the build
+   must pass with no warnings in pass-2 (`obj/wasm-build/pass-2.log`)
+   and write `output/sbcl.core`, `output/sbcl-core.wasm`,
+   `src/runtime/sbcl.wasm`.
+2. **The suites**: `./build-wasm.sh test` (level 0, 16 checks; level 1,
+   444 cases), `./build-wasm.sh regress` (403 files — on Linux; on
+   macOS the runner now runs them all, but the recorded baselines are
+   Linux builds), `./build-wasm.sh ansi`. The regress result must not
+   regress the current baseline
+   (`doc/wasm-port/baselines/`, the newest file), and a new baseline
+   file is written when it does (approved) change.
+3. **The hosts**: `Sprints/Sprint14/uat.sh` (the browser host in
+   Chromium and Firefox, the Node smoke run, `sb-js`), plus a manual
+   `run-sbcl.sh --noinform` round trip under Wasmtime.
+4. **The numbers recorded**: startup to the REPL, the core module's
+   size, and — when the release claims a performance change — the
+   cl-bench baseline (`doc/wasm-port/baselines/`).
+5. **The release notes**: a section in `WASM-NEWS.md`; the version is
+   `version.lisp-expr` (`2.4.8-wasm`) plus the tag's `N`.
+6. **Tag and publish**: `git tag sbcl-X.Y.Z-wasm.N && git push origin
+   wasm-dev --tags`. The CI build of the tag uploads the runtime, the
+   core and the core module (`linux-wasm.yml`), so a release is
+   consumable as artifacts even though the port ships no installers.
+
+The upstream `release.sh` does not apply to the port (no x86-64
+binaries, no Sourceforge); the section above replaces it.
