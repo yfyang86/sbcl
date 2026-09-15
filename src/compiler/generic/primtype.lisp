@@ -455,18 +455,18 @@
                  (values (primitive-type (sb-kernel::remove-opaque-type-intersections type))
                          nil)
                  (let ((types (sb-kernel::flatten-numeric-union-types type)))
-               (multiple-value-bind (res exact) (primitive-type (first types))
-                 (dolist (type (rest types) (values res exact))
-                   (multiple-value-bind (ptype ptype-exact)
-                       (primitive-type type)
-                     (unless ptype-exact (setq exact nil))
-                     (unless (eq ptype res)
-                       (let ((new-ptype
-                              (or (maybe-numeric-type-union res ptype)
-                                  (maybe-numeric-type-union ptype res))))
-                         (if new-ptype
-                             (setq res new-ptype)
-                             (return (any)))))))))))
+                   (multiple-value-bind (res exact) (primitive-type (first types))
+                     (dolist (type (rest types) (values res exact))
+                       (multiple-value-bind (ptype ptype-exact)
+                           (primitive-type type)
+                         (unless ptype-exact (setq exact nil))
+                         (unless (eq ptype res)
+                           (let ((new-ptype
+                                  (or (maybe-numeric-type-union res ptype)
+                                      (maybe-numeric-type-union ptype res))))
+                             (if new-ptype
+                                 (setq res new-ptype)
+                                 (return (any))))))))))))
         (intersection-type
          (let ((types (intersection-type-types type))
                (res (any)))

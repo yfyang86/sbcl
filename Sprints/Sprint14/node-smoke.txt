@@ -1,10 +1,10 @@
-# module: 43720 functions at 4096..47816 (44435059 bytes)
-# module: 14269 functions at 47816..62085 (19037068 bytes)
-# module: 2 functions at 62085..62087 (920 bytes)
-# module: 1 functions at 62087..62088 (583 bytes)
+# module: 43726 functions at 4096..47822 (44436813 bytes)
+# module: 14269 functions at 47822..62091 (19034800 bytes)
+# module: 2 functions at 62091..62093 (920 bytes)
+# module: 1 functions at 62093..62094 (583 bytes)
 ;;;; SIGBUS handler not installed
 # exit 0
-# exit 0 in 163 ms
+# exit 0 in 164 ms
 * 
 3 
 3
