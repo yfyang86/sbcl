@@ -93,15 +93,20 @@
   (:generator 1
     (move val cfp-tn)))
 
-;;; Used for computing the caller's NFP for use in known-values return.
+;;; Used for computing the caller's NFP for use in known-values return:
+;;; the caller saved it in its frame (NFP-SAVE in the local call VOPs)
+;;; before the call, and the frame is at OCFP-SAVE-OFFSET of ours. NFP
+;;; plus this frame's size, the old way, is wrong once WITH-ALIEN has
+;;; allocated on the number stack (upstream's arm and arm64 fix, the
+;;; LOCAL-CALL-COMPUTE-OLD-NFP test).
 (define-vop (compute-old-nfp)
   (:results (val :scs (any-reg)))
   (:vop-var vop)
   (:generator 1
     (let ((nfp (current-nfp-tn vop)))
       (when nfp
-        (store-reg val
-          (emit-reg-plus nfp (bytes-needed-for-non-descriptor-stack-frame)))))))
+        (loadw val cfp-tn ocfp-save-offset)
+        (loadw val val nfp-save-offset)))))
 
 ;;; Accessing a slot from an earlier stack frame is definite hackery.
 (define-vop (ancestor-frame-ref)
