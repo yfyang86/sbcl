@@ -59,7 +59,9 @@
   (:translate %make-lisp-obj)
   (:args (value :scs (unsigned-reg)))
   (:arg-types unsigned-num)
-  (:results (result :scs (descriptor-reg)))
+  ;; ANY-REG as well: a (TRULY-THE FIXNUM (%MAKE-LISP-OBJ ...)) result is
+  ;; a fixnum TN, as on the other backends
+  (:results (result :scs (descriptor-reg any-reg)))
   (:generator 1
     (move result value)))
 
