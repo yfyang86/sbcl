@@ -56,8 +56,10 @@ on the branch, `tests/mop-coverage.impure.lisp` carries the battery.
 
 Level 0 (16) and level 1 (444/444) green; `clos.pure`, `clos.impure`
 and the whole `clos-*`/`ctor` set green (the four failures those files
-had are the recorded baseline's); the full regression suite —
-`doc/wasm-port/baselines/` gains this branch's run. The battery:
+had are the recorded baseline's); the full regression suite — 404
+files, no regressions versus `wasm-dev-sync2.txt` (the no-consing pair
+of build-flaky tests traded places; recorded in
+`doc/wasm-port/baselines/sbcl-wasm-proposal.txt`). The battery:
 `mop-coverage.impure.lisp` 0 unexpected failures — their check 11 can
 drop its `KNOWN-SBCL-GAP` tolerance and CI will hold it.
 
