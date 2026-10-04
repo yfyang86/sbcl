@@ -3619,6 +3619,7 @@ ISBN 0-262-61074-4, with exceptions as noted in the User Manual.")
            "SLOT-DEFINITION-READERS"
            "SLOT-DEFINITION-WRITERS"
            "SLOT-DEFINITION-TYPE"
+           "SLOT-EXISTS-P-USING-CLASS"
            "SLOT-MAKUNBOUND-USING-CLASS"
            "SLOT-VALUE-USING-CLASS"
            "SPECIALIZER"

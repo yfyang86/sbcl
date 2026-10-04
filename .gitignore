@@ -57,3 +57,4 @@ test-results/
 playwright-report/
 .DS_Store
 /Release/
+sbcl-2.4.8-wasm.1-macos-arm64.zip

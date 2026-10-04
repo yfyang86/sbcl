@@ -251,11 +251,17 @@
            (bug "Bogus slot-cell in SLOT-MAKUNBOUND: ~S" cell))))
   object)
 
-;; Note that CLHS "encourages" implementors to base this on
-;; SLOT-EXISTS-P-USING-CLASS, whereas 88-002R made no such claim,
-;; however Appendix D of AMOP sketches out such an implementation.
-(defun slot-exists-p (object slot-name)
+;; CLHS "encourages" implementors to base this on
+;; SLOT-EXISTS-P-USING-CLASS, and Appendix D of AMOP sketches out such
+;; an implementation; Closer-mop (and the libraries on it) specializes
+;; exactly that generic, which SBCL did not have.
+(defmethod slot-exists-p-using-class ((class class) object slot-name)
+  ;; on every class, built-in classes included: CL:SLOT-EXISTS-P is
+  ;; defined for any object and was a direct FIND-SLOT-CELL before
   (not (null (find-slot-cell (valid-wrapper-of object) slot-name))))
+
+(defun slot-exists-p (object slot-name)
+  (slot-exists-p-using-class (class-of object) object slot-name))
 
 (defun slot-value-for-printing (object slot-name)
   (if (slot-boundp object slot-name)
