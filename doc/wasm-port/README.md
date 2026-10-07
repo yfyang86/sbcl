@@ -16,6 +16,8 @@ today. The documents are ordered so that they can be read front to back.
 | [04-sprints.md](04-sprints.md) | Phases, sprints, deliverables, exit criteria, sizing. |
 | [05-testing.md](05-testing.md) | Test strategy at each level, from Wasm module validation to the ANSI suite, contribs and benchmarks. |
 | [06-risks-and-spikes.md](06-risks-and-spikes.md) | Open questions, risks, and the short spikes that must run before Sprint 1 commits to a design. |
+| [gap-analysis.md](gap-analysis.md) | What the branch delivers against the plan, the port against native SBCL, the browser host's backlog, CI, and the recommended order of the next sprints (2026-10-07). |
+| [mop-gap-response.md](mop-gap-response.md) | The go/no-go response to ConsCell's MOP coverage battery. |
 
 ## Executive summary
 
