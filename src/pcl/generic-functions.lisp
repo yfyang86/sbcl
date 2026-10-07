@@ -360,6 +360,8 @@ protocol. Interface subject to change."))
 
 (defgeneric slot-makunbound-using-class (class object slotd))
 
+(defgeneric slot-exists-p-using-class (class object slot-name))
+
 (defgeneric slot-unbound (class instance slot-name))
 
 (defgeneric slot-value-using-class (class object slotd))

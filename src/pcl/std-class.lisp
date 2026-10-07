@@ -504,7 +504,11 @@
   (setq direct-slots
         (if direct-slots-p
             (setf (slot-value class 'direct-slots)
-                  (mapcar (lambda (pl) (make-direct-slotd class pl))
+                  (mapcar (lambda (spec)
+                            (setq spec (maybe-canonicalize-direct-slot spec))
+                            (if (typep spec 'slot-definition)
+                                spec
+                                (make-direct-slotd class spec)))
                           direct-slots))
             (slot-value class 'direct-slots)))
   (when direct-default-initargs-p
@@ -646,7 +650,11 @@
                  plist)
         class
       (setf (slot-value class 'direct-slots)
-            (mapcar (lambda (pl) (make-direct-slotd class pl))
+            (mapcar (lambda (spec)
+                      (setq spec (maybe-canonicalize-direct-slot spec))
+                      (if (typep spec 'slot-definition)
+                          spec
+                          (make-direct-slotd class spec)))
                     direct-slots)
             finalized-p t
             (classoid-pcl-class classoid) class
@@ -837,6 +845,12 @@
         (setf (slot-value class 'direct-slots)
               (setq direct-slots
                     (mapcar (lambda (pl)
+                              (setq pl (maybe-canonicalize-direct-slot pl))
+                              (when (typep pl 'slot-definition)
+                                (%program-error
+                                 "slot definition metaobjects are not ~
+                                  supported as :DIRECT-SLOTS of a ~
+                                  structure class"))
                               (when defstruct-p
                                 (let* ((slot-name (getf pl :name))
                                        (accessor
@@ -1191,6 +1205,72 @@
 (defmethod direct-slot-definition-class ((class std-class) &rest initargs)
   (declare (ignore initargs))
   (find-class 'standard-direct-slot-definition))
+
+;;; The :DIRECT-SLOTS entries of a programmatic ENSURE-CLASS in the
+;;; DEFCLASS source syntax — (name {option value}*) — as the ConsCell
+;;; port's MOP battery (and every user coming from DEFCLASS) writes
+;;; them, rewritten into the canonicalized plist the DEFCLASS
+;;; expansion produces (AMOP 5.4.2) and ENSURE-CLASS has always
+;;; accepted. A programmatic ENSURE-CLASS then matches the macro; the
+;;; :INITFORM of a programmatic spec is the value itself (an
+;;; unevaluated form has no meaning here), which becomes the slot's
+;;; initfunction.
+(defun canonicalize-direct-slot-spec (spec)
+  (labels ((fail (format &rest args)
+             (apply #'%program-error format args))
+           (note (key val others)
+             (when (getf others key)
+               (fail "Duplicate slot option ~S in the slot spec ~S." key spec))
+             (setf (getf others key) val)))
+    (let* ((name (if (listp spec) (car spec) spec))
+           (plist (if (listp spec) (cdr spec) nil))
+           (readers ()) (writers ()) (initargs ())
+           (initform '()) (initformp nil)
+           (others '()))
+      (unless (and (symbolp name) (not (keywordp name)))
+        (fail "The slot name ~S in a :DIRECT-SLOTS spec is not a symbol." name))
+      (unless (evenp (length plist))
+        (fail "Odd number of slot options in the spec ~S." spec))
+      (doplist (key val) plist
+        (case key
+          (:accessor
+           (unless (symbolp val) (fail "The accessor name ~S is not a symbol." val))
+           (push val readers) (push `(setf ,val) writers))
+          (:reader (push val readers))
+          (:writer (push val writers))
+          (:initarg
+           (unless (symbolp val) (fail "The initarg name ~S is not a symbol." val))
+           (push val initargs))
+          (:initform (setq initform val initformp t))
+          ((:type :allocation :documentation) (note key val others))
+          (otherwise (note key val others))))
+      (let ((canon `(; the canonical order of the DEFCLASS expansion
+                     :name ,name
+                     :readers ,(nreverse readers)
+                     :writers ,(nreverse writers)
+                     :initargs ,(nreverse initargs)
+                     ,@others)))
+        (if initformp
+            ;; AMOP's slot definition initialization wants :INITFORM
+            ;; beside :INITFUNCTION; the programmatic :INITFORM is its
+            ;; own value (an unevaluated form has no meaning here)
+            (list* :initform initform
+                   :initfunction (constantly initform)
+                   canon)
+            canon)))))
+
+;;; ENSURE-CLASS's :DIRECT-SLOTS entries as they arrive at the class
+;;; metaobject initializations: canonicalized plists (from the DEFCLASS
+;;; expansion) pass through, slot definition metaobjects pass through
+;;; (used as the direct slots themselves), and DEFCLASS source specs
+;;; are canonicalized.
+(defun maybe-canonicalize-direct-slot (spec)
+  ;; a canonicalized plist starts with a keyword (always :name, or
+  ;; :initfunction first when an initform was supplied); a DEFCLASS
+  ;; source spec starts with the slot name, a non-keyword symbol
+  (cond ((typep spec 'slot-definition) spec)
+        ((and (consp spec) (or (null spec) (keywordp (car spec)))) spec)
+        (t (canonicalize-direct-slot-spec spec))))
 
 (defun make-direct-slotd (class initargs)
   (apply #'make-instance
